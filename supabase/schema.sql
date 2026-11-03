@@ -527,6 +527,77 @@ begin
   return public._close_completed();
 end $$;
 
+-- ----------------------------------------------------------- weekly archive --
+-- One compact snapshot per week (Monday-Sunday): the regular shows that ran and
+-- every booking in that week, whatever its status. Saved automatically every
+-- Sunday night (cron.sql) and on demand by engineers. Read-only from the site;
+-- sha256 is a fingerprint of the stored data so it can be shown to be unaltered.
+create table if not exists public.weekly_archives (
+  week_start    date primary key check (extract(isodow from week_start) = 1),
+  archived_at   timestamptz not null default now(),
+  archived_by   text not null default 'automatic',
+  booking_count int not null default 0,
+  show_count    int not null default 0,
+  data          jsonb not null,
+  sha256        text not null
+);
+
+create or replace function public._archive_week(p_start date, p_by text default 'automatic')
+returns public.weekly_archives
+language plpgsql security definer set search_path = public as $$
+declare
+  v_start date := date_trunc('week', p_start)::date;
+  v_shows jsonb;
+  v_bookings jsonb;
+  v_data jsonb;
+  r public.weekly_archives;
+begin
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'date', d::date, 'start', to_char(s.start_time, 'HH24:MI'), 'end', to_char(s.end_time, 'HH24:MI'),
+           'studio', s.studio, 'title', s.name) order by d, s.start_time, s.name), '[]')
+    into v_shows
+    from public.weekly_shows s
+    cross join generate_series(v_start, v_start + 6, interval '1 day') d
+   where extract(isodow from d)::smallint = any (s.days)
+     and (s.active_from is null or d::date >= s.active_from)
+     and (s.active_to is null or d::date <= s.active_to);
+
+  select coalesce(jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
+           'ref', b.ref, 'date', b.booking_date, 'start', to_char(b.start_time, 'HH24:MI'), 'end', to_char(b.end_time, 'HH24:MI'),
+           'setup', to_char(b.setup_time, 'HH24:MI'), 'studio', b.studio, 'title', b.title, 'status', b.status,
+           'requester', b.requester_name, 'department', b.department, 'email', b.requester_email,
+           'contact', b.contact_number, 'producer', b.producer, 'live_recorded', b.live_recorded, 'crew', b.crew,
+           'priority', b.priority, 'notes', nullif(b.notes, ''), 'submitted', b.created_at, 'approved', b.approved_at))
+           order by b.booking_date, b.start_time, b.ref), '[]')
+    into v_bookings
+    from public.bookings b
+   where b.booking_date between v_start and v_start + 6;
+
+  v_data := jsonb_build_object('week_start', v_start, 'week_end', v_start + 6,
+                               'shows', v_shows, 'bookings', v_bookings);
+
+  insert into public.weekly_archives as a (week_start, archived_at, archived_by, booking_count, show_count, data, sha256)
+  values (v_start, now(), coalesce(nullif(p_by, ''), 'automatic'), jsonb_array_length(v_bookings), jsonb_array_length(v_shows),
+          v_data, encode(sha256(convert_to(v_data::text, 'UTF8')), 'hex'))
+  on conflict (week_start) do update
+     set archived_at = excluded.archived_at, archived_by = excluded.archived_by,
+         booking_count = excluded.booking_count, show_count = excluded.show_count,
+         data = excluded.data, sha256 = excluded.sha256
+  returning * into r;
+  return r;
+end $$;
+
+-- Engineers: save (or refresh) the archive for a week now.
+create or replace function public.archive_week(p_start date) returns public.weekly_archives
+language plpgsql security definer set search_path = public as $$
+declare
+  v_email text;
+begin
+  if not public.is_engineer() then raise exception 'Engineers only'; end if;
+  select email into v_email from auth.users where id = auth.uid();
+  return public._archive_week(p_start, coalesce(v_email, 'engineer'));
+end $$;
+
 -- ------------------------------------------------------- row level security --
 alter table public.bookings enable row level security;
 alter table public.engineers enable row level security;
@@ -547,6 +618,12 @@ drop policy if exists "engineers manage shows" on public.weekly_shows;
 create policy "engineers manage shows" on public.weekly_shows for all to authenticated
   using (public.is_engineer()) with check (public.is_engineer());
 
+-- Archives: engineers can read; nobody can change or delete them from the site.
+alter table public.weekly_archives enable row level security;
+drop policy if exists "engineers read archives" on public.weekly_archives;
+create policy "engineers read archives" on public.weekly_archives for select to authenticated using (public.is_engineer());
+revoke insert, update, delete on public.weekly_archives from anon, authenticated;
+
 drop policy if exists "engineers select engineers" on public.engineers;
 create policy "engineers select engineers" on public.engineers for select to authenticated using (public.is_engineer());
 
@@ -564,6 +641,8 @@ revoke all on function public.bookings_after() from public, anon, authenticated;
 revoke all on function public.bookings_notify() from public, anon, authenticated;
 revoke all on function public.engineer_emails() from public, anon, authenticated;
 revoke all on function public.schedule_changed() from public, anon, authenticated;
+revoke all on function public._archive_week(date, text) from public, anon, authenticated;
+revoke all on function public.archive_week(date) from public, anon;
 do $$
 begin
   if exists (select 1 from pg_roles where rolname = 'service_role') then
@@ -577,6 +656,7 @@ grant execute on function public.week_overview(date, text) to anon, authenticate
 grant execute on function public.is_engineer() to anon, authenticated;
 grant execute on function public.recheck_all_conflicts() to authenticated;
 grant execute on function public.close_completed() to authenticated;
+grant execute on function public.archive_week(date) to authenticated;
 
 -- Live updates in the engineer console
 do $$

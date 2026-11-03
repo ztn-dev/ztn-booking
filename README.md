@@ -105,6 +105,7 @@ When `SMTP_PASSWORD` is set, the function sends through SMTP (port 465); otherwi
 - **Weekly shows:** open the Engineers page, then the **Weekly shows** tab, to add or edit them. When a programme ends, set **Active to** rather than deleting it.
 - **Approvals:** change the Status drop-down in the Schedule tab. Declining or cancelling asks for a reason, which is emailed to the requester.
 - **Weekly archive:** in **Week view**, **Download week (Excel/CSV)** saves every regular show and every booking that week (all statuses, requester, submitted and approved times, notes), stamped with the export time and engineer. **Print / Save as PDF** gives the same week as a printable grid plus list. Keep one per week as a record of what was booked.
+- **Automatic archive:** every Sunday at 23:55 (Harare time) the database saves a snapshot of the week: regular shows and every booking with full details and status. Snapshots are small (a few KB each), can't be edited or deleted from the site, and carry a SHA-256 fingerprint. See and download them in the engineer page's **Archive** tab, or save the current week straight away from there.
 - **Excel:** **Export CSV** downloads the schedule with the same columns as the workbook's Studio Schedule sheet.
 
 ## Costs and limits

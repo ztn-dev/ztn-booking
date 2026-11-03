@@ -79,6 +79,7 @@
         <button role="tab" aria-selected="true" data-tab="table">Schedule</button>
         <button role="tab" aria-selected="false" data-tab="week">Week view</button>
         <button role="tab" aria-selected="false" data-tab="shows">Weekly shows</button>
+        <button role="tab" aria-selected="false" data-tab="archive">Archive</button>
       </div>
       <div id="tab-table" class="table-wrap"></div>
       <div id="tab-week" hidden>
@@ -93,6 +94,14 @@
         </div>
         <div class="legend"><span><i class="l-show"></i>Regular show</span><span><i class="l-busy"></i>Confirmed / completed booking</span><span><i class="l-clash"></i>Same studio used twice</span><span>Tip: click an empty slot to add a programme there.</span></div>
         <div class="table-wrap" id="weekGrid"></div>
+      </div>
+      <div id="tab-archive" hidden>
+        <p class="count" style="margin:0 0 10px">A snapshot of every week is saved automatically each Sunday at 23:55. It holds the regular shows and every booking that week (all statuses) and cannot be changed afterwards. The fingerprint (SHA-256) proves a snapshot has not been altered.</p>
+        <div class="actions" style="margin-bottom:10px">
+          <label class="field" style="width:auto"><span>Week</span><input type="date" id="archiveWeek"></label>
+          <button class="btn primary" id="archiveNowBtn" style="align-self:end">Save snapshot of this week now</button>
+        </div>
+        <div class="table-wrap" id="archiveTable"></div>
       </div>
       <div id="tab-shows" hidden>
         <p class="count" style="margin:0 0 10px">Programmes that repeat every week. They appear on the studio monitor and warn when a booking overlaps them, but never block it &mdash; you decide.</p>
@@ -310,8 +319,9 @@
       $('quickDays').innerHTML = DAY_SHORT.map((d, i) => `<label><input type="checkbox" name="qday" value="${i + 1}"> ${d}</label>`).join('');
       qf.querySelectorAll('input[name="kind"]').forEach((r) => (r.onchange = quickKind));
       qf.addEventListener('submit', saveQuickAdd);
-      $('weekCsvBtn').onclick = downloadWeekCsv;
-      $('weekPrintBtn').onclick = printWeek;
+      $('weekCsvBtn').onclick = () => liveWeek().then(downloadWeekCsv).catch((e) => toast(`Could not build the week: ${e.message}`, 'bad'));
+      $('weekPrintBtn').onclick = () => { const w = window.open('', '_blank'); liveWeek().then((d) => printWeek(d, w)).catch((e) => { w?.close(); toast(`Could not build the week: ${e.message}`, 'bad'); }); };
+      $('archiveNowBtn').onclick = archiveNow;
       $('quickAddBtn').onclick = () => openQuickAdd(weekStart <= todayISO() && todayISO() <= addDays(weekStart, 6) ? todayISO() : weekStart);
       $('prevWeek').onclick = () => { weekStart = addDays(weekStart, -7); loadWeek(); };
       $('nextWeek').onclick = () => { weekStart = addDays(weekStart, 7); loadWeek(); };
@@ -513,12 +523,19 @@
       $('tab-table').hidden = name !== 'table';
       $('tab-week').hidden = name !== 'week';
       $('tab-shows').hidden = name !== 'shows';
+      $('tab-archive').hidden = name !== 'archive';
       if (name === 'week') loadWeek();
       if (name === 'shows') loadShows();
+      if (name === 'archive') loadArchive();
     }
 
-    // ---- Weekly archive: everything scheduled in the week shown, for the record ----
-    async function weekArchiveData() {
+    // ---- Weekly record: CSV / print for the week shown, or for a saved snapshot ----
+    // A "week" object: { ws, end, items, header, file }. items share one shape so
+    // the live week and archived snapshots export identically.
+    const byTime = (a, b) => (a.date + a.start).localeCompare(b.date + b.start) || a.studio.localeCompare(b.studio);
+    const harare = (ts, opts = {}) => (ts ? new Date(ts).toLocaleString('en-GB', { timeZone: 'Africa/Harare', ...opts }) : '');
+
+    async function liveWeek() {
       const end = addDays(weekStart, 6);
       const [ov, bk] = await Promise.all([
         db.rpc('week_overview', { p_start: weekStart }),
@@ -526,58 +543,63 @@
           .order('booking_date').order('start_time'),
       ]);
       if (ov.error || bk.error) throw new Error(errMsg(ov.error || bk.error));
-      const shows = (ov.data || []).filter((r) => r.kind === 'show');
       const items = [
-        ...shows.map((s) => ({ type: 'Regular show', date: s.booking_date, start: s.start_time, end: s.end_time, studio: s.studio, title: s.title, status: 'Scheduled' })),
-        ...bk.data.map((b) => ({ type: 'Booking', date: b.booking_date, start: b.start_time, end: b.end_time, studio: b.studio, title: b.title, status: b.status, b })),
-      ].sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start) || a.studio.localeCompare(b.studio));
-      const stamp = new Date().toLocaleString('en-GB', { timeZone: 'Africa/Harare', dateStyle: 'medium', timeStyle: 'short' });
-      return { end, items, stamp, by: me?.email || '' };
+        ...(ov.data || []).filter((r) => r.kind === 'show').map((s) => ({ type: 'Regular show', date: s.booking_date, start: hm(s.start_time), end: hm(s.end_time), studio: s.studio, title: s.title, status: 'Scheduled' })),
+        ...bk.data.map((b) => ({ type: 'Booking', date: b.booking_date, start: hm(b.start_time), end: hm(b.end_time), studio: b.studio, title: b.title, status: b.status,
+          b: { ref: b.ref, requester: b.requester_name, department: b.department, email: b.requester_email, contact: b.contact_number, producer: b.producer,
+            live_recorded: b.live_recorded, crew: b.crew, priority: b.priority, setup: hm(b.setup_time), submitted: b.created_at, approved: b.approved_at, notes: b.notes } })),
+      ].sort(byTime);
+      return { ws: weekStart, end, items, header: `Exported ${harare(Date.now(), { dateStyle: 'medium', timeStyle: 'short' })} (Harare time) by ${me?.email || ''}`, file: `ztn-studio-week-${weekStart}` };
     }
 
-    async function downloadWeekCsv() {
-      let d;
-      try { d = await weekArchiveData(); } catch (e) { return toast(`Could not build the archive: ${e.message}`, 'bad'); }
+    function archivedWeek(row) {
+      const d = row.data;
+      const items = [
+        ...d.shows.map((s) => ({ type: 'Regular show', date: s.date, start: s.start, end: s.end, studio: s.studio, title: s.title, status: 'Scheduled' })),
+        ...d.bookings.map((b) => ({ type: 'Booking', date: b.date, start: b.start, end: b.end, studio: b.studio, title: b.title, status: b.status, b })),
+      ].sort(byTime);
+      return { ws: d.week_start, end: d.week_end, items, file: `ztn-studio-week-${d.week_start}-archive`,
+        header: `Archived snapshot saved ${harare(row.archived_at, { dateStyle: 'medium', timeStyle: 'short' })} (Harare time) by ${row.archived_by} · SHA-256 ${row.sha256}` };
+    }
+
+    function downloadWeekCsv(d) {
       const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-      const when = (ts) => (ts ? new Date(ts).toLocaleString('en-GB', { timeZone: 'Africa/Harare' }) : '');
       const lines = [
-        [`ZTN Studio Schedule — week ${fmtDate(weekStart)} to ${fmtDate(d.end)}`],
-        [`Exported ${d.stamp} (Harare time) by ${d.by}`],
+        [`ZTN Studio Schedule — week ${fmtDate(d.ws)} to ${fmtDate(d.end)}`],
+        [d.header],
         [`${d.items.filter((i) => i.type === 'Booking').length} booking(s), ${d.items.filter((i) => i.type !== 'Booking').length} regular show slot(s)`],
         [],
         ['Date', 'Day', 'Start', 'End', 'Studio', 'Type', 'Booking Ref', 'Programme / Production', 'Status',
           'Requester', 'Department', 'Requester Email', 'Contact', 'Producer', 'Live / Recorded', 'Crew / Technical Support',
           'Priority', 'Setup Access', 'Submitted', 'Approved', 'Notes'],
-        ...d.items.map((i) => [i.date, dayName(i.date), hm(i.start), hm(i.end), i.studio, i.type, i.b?.ref, i.title, i.status,
-          i.b?.requester_name, i.b?.department, i.b?.requester_email, i.b?.contact_number, i.b?.producer, i.b?.live_recorded,
-          i.b?.crew, i.b?.priority, hm(i.b?.setup_time), when(i.b?.created_at), when(i.b?.approved_at), i.b?.notes]),
+        ...d.items.map((i) => [i.date, dayName(i.date), i.start, i.end, i.studio, i.type, i.b?.ref, i.title, i.status,
+          i.b?.requester, i.b?.department, i.b?.email, i.b?.contact, i.b?.producer, i.b?.live_recorded,
+          i.b?.crew, i.b?.priority, i.b?.setup, harare(i.b?.submitted), harare(i.b?.approved), i.b?.notes]),
       ];
       const blob = new Blob(['﻿' + lines.map((r) => r.map(cell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
-      const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `ztn-studio-week-${weekStart}.csv` });
+      const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `${d.file}.csv` });
       a.click();
       URL.revokeObjectURL(a.href);
-      toast(`Week of ${fmtDate(weekStart)} downloaded`, 'ok');
+      toast(`Week of ${fmtDate(d.ws)} downloaded`, 'ok');
     }
 
-    async function printWeek() {
-      const w = window.open('', '_blank');
+    // w: a window opened straight from the click (browsers block pop-ups opened later).
+    function printWeek(d, w) {
       if (!w) return toast('Allow pop-ups for this site to print the week.', 'bad');
-      let d;
-      try { d = await weekArchiveData(); } catch (e) { w.close(); return toast(`Could not build the archive: ${e.message}`, 'bad'); }
       const firm = d.items.filter((i) => i.type !== 'Booking' || ['Confirmed', 'Completed'].includes(i.status))
         .map((i) => ({ kind: i.type === 'Booking' ? 'booking' : 'show', ref: i.b?.ref, booking_date: i.date, start_time: i.start, end_time: i.end, studio: i.studio, title: i.title, status: i.type === 'Booking' ? i.status : 'Show' }));
       const rowsHtml = d.items.map((i) => `<tr class="${i.type === 'Booking' ? '' : 'reg'}">
-        <td>${fmtDate(i.date, { weekday: 'short', day: '2-digit', month: 'short' })}</td><td>${hm(i.start)}–${hm(i.end)}</td>
+        <td>${fmtDate(i.date, { weekday: 'short', day: '2-digit', month: 'short' })}</td><td>${i.start}–${i.end}</td>
         <td>${esc(i.studio)}</td><td>${esc(i.b?.ref || 'Regular show')}</td><td><b>${esc(i.title)}</b></td><td>${esc(i.status)}</td>
-        <td>${esc([i.b?.requester_name, i.b?.department].filter(Boolean).join(' — '))}</td>
-        <td>${i.b?.approved_at ? new Date(i.b.approved_at).toLocaleString('en-GB', { timeZone: 'Africa/Harare' }) : ''}</td>
+        <td>${esc([i.b?.requester, i.b?.department].filter(Boolean).join(' — '))}</td>
+        <td>${harare(i.b?.approved)}</td>
         <td class="notes">${esc(i.b?.notes || '')}</td></tr>`).join('');
-      w.document.write(`<!doctype html><html data-theme="light"><head><meta charset="utf-8"><title>ZTN studio schedule ${weekStart}</title>
+      w.document.write(`<!doctype html><html data-theme="light"><head><meta charset="utf-8"><title>ZTN studio schedule ${d.ws}</title>
         <link rel="stylesheet" href="${new URL('assets/style.css', location.href)}">
         <style>
           :root { color-scheme: light; --bg:#fff; --surface:#fff; --surface-2:#f2f2f2; --text:#111; --muted:#555; --border:#bbb; --busy:#ddebf7; --show:#e2efda; --clash:#ffc7ce; }
           body { background:#fff; color:#111; margin: 12mm; font-size: 11px; }
-          h1 { font-size: 18px; margin: 0 0 2px; } .meta { color:#555; margin: 0 0 10px; }
+          h1 { font-size: 18px; margin: 0 0 2px; } .meta { color:#555; margin: 0 0 10px; word-break: break-all; }
           table.week td { height: auto; font-size: 9px; padding: 2px 3px; } table.week th.slot { font-size: 9px; width: 70px; }
           table.list { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 10px; }
           table.list th, table.list td { border: 1px solid #bbb; padding: 3px 5px; text-align: left; vertical-align: top; }
@@ -586,9 +608,9 @@
           .page-break { break-before: page; }
           @page { size: A4 landscape; margin: 10mm; }
         </style></head><body>
-        <h1>ZTN Studio Schedule — week ${fmtDate(weekStart)} to ${fmtDate(d.end)}</h1>
-        <p class="meta">Exported ${esc(d.stamp)} (Harare time) by ${esc(d.by)} · ${d.items.filter((i) => i.type === 'Booking').length} booking(s)</p>
-        ${weekGridHTML(firm, weekStart)}
+        <h1>ZTN Studio Schedule — week ${fmtDate(d.ws)} to ${fmtDate(d.end)}</h1>
+        <p class="meta">${esc(d.header)} · ${d.items.filter((i) => i.type === 'Booking').length} booking(s)</p>
+        ${weekGridHTML(firm, d.ws)}
         <div class="page-break"></div>
         <h1>All bookings and regular shows this week</h1>
         <table class="list"><thead><tr><th>Date</th><th>Time</th><th>Studio</th><th>Ref</th><th>Programme</th><th>Status</th><th>Requester</th><th>Approved</th><th>Notes</th></tr></thead>
@@ -596,6 +618,36 @@
         <script>window.onload = () => setTimeout(() => window.print(), 300);<\/script>
         </body></html>`);
       w.document.close();
+    }
+
+    // ---- Archive tab ---------------------------------------------------------
+    async function loadArchive() {
+      if (!$('archiveWeek').value) $('archiveWeek').value = weekStart;
+      const { data, error } = await db.from('weekly_archives')
+        .select('week_start, archived_at, archived_by, booking_count, show_count, sha256').order('week_start', { ascending: false });
+      if (error) return toast(`Could not load the archive: ${errMsg(error)}`, 'bad');
+      $('archiveTable').innerHTML = !data.length ? '<div class="empty">No snapshots yet. The first is saved automatically on Sunday night, or use the button above.</div>'
+        : `<table class="sched"><thead><tr><th>Week</th><th>Bookings</th><th>Regular show slots</th><th>Saved</th><th>By</th><th>Fingerprint (SHA-256)</th><th></th></tr></thead><tbody>
+          ${data.map((r) => `<tr><td class="nowrap"><b>${fmtDate(r.week_start)} – ${fmtDate(addDays(r.week_start, 6))}</b></td>
+            <td>${r.booking_count}</td><td>${r.show_count}</td><td class="nowrap">${harare(r.archived_at, { dateStyle: 'medium', timeStyle: 'short' })}</td>
+            <td>${esc(r.archived_by)}</td><td><code title="${esc(r.sha256)}">${esc(r.sha256.slice(0, 16))}…</code></td>
+            <td class="nowrap"><button class="btn" data-arc-csv="${r.week_start}">Download (CSV)</button> <button class="btn" data-arc-print="${r.week_start}">Print / PDF</button></td></tr>`).join('')}
+          </tbody></table>`;
+      const fetchRow = async (ws) => {
+        const { data: row, error: e } = await db.from('weekly_archives').select('*').eq('week_start', ws).single();
+        if (e) throw new Error(errMsg(e));
+        return archivedWeek(row);
+      };
+      $('archiveTable').querySelectorAll('[data-arc-csv]').forEach((b) => (b.onclick = () => fetchRow(b.dataset.arcCsv).then(downloadWeekCsv).catch((e) => toast(e.message, 'bad'))));
+      $('archiveTable').querySelectorAll('[data-arc-print]').forEach((b) => (b.onclick = () => { const w = window.open('', '_blank'); fetchRow(b.dataset.arcPrint).then((d) => printWeek(d, w)).catch((e) => { w?.close(); toast(e.message, 'bad'); }); }));
+    }
+
+    async function archiveNow() {
+      const ws = mondayOf($('archiveWeek').value || weekStart);
+      const { data, error } = await db.rpc('archive_week', { p_start: ws });
+      if (error) return toast(`Could not save: ${errMsg(error)}`, 'bad');
+      toast(`Snapshot saved for the week of ${fmtDate(ws)} (${data.booking_count} booking(s))`, 'ok');
+      loadArchive();
     }
 
     async function loadWeek() {
