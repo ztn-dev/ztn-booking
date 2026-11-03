@@ -52,6 +52,19 @@
       $('foot').innerHTML = parts.join('');
     }
 
+    // Pick the largest text size at which the whole week (06:00 to 22:00) fits on screen.
+    function fitGrid() {
+      const grid = $('grid'), table = grid.querySelector('table');
+      if (!table) return;
+      const cs = getComputedStyle(grid);
+      const avail = grid.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+      let size = Math.max(8, Math.min(innerWidth * 0.0085, innerHeight * 0.016));
+      for (; size > 6; size -= 0.5) {
+        grid.style.setProperty('--mon-font', `${size}px`);
+        if (table.offsetHeight <= avail + 1) break;
+      }
+    }
+
     async function refresh() {
       const now = nowParts();
       weekStart = mondayOf(fixedWeek || now.date);
@@ -68,6 +81,7 @@
       rows = data;
       lastOk = Date.now();
       $('grid').innerHTML = weekGridHTML(rows, weekStart, { now: fixedWeek ? null : now });
+      fitGrid();
       renderFoot(now);
     }
 
@@ -80,6 +94,8 @@
       tick();
       // Reload every 6 hours so the screen picks up site updates.
       setTimeout(() => location.reload(), 6 * 3600 * 1000);
+      let rt;
+      addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(fitGrid, 150); });
     }
   </script>
 </body>

@@ -184,15 +184,20 @@ body.monitor .mon-head { display: flex; justify-content: space-between; align-it
 body.monitor .mon-head h1 { margin: 0; font-size: 2.2vw; letter-spacing: .06em; }
 body.monitor .mon-head .week-label { font-size: 1.2vw; color: #cdd8ee; }
 body.monitor .clock { font-size: 2.6vw; font-weight: 700; font-variant-numeric: tabular-nums; }
-body.monitor .mon-grid { padding: 1vh 1.2vw; flex: 1; min-height: 0; }
-body.monitor table.week { height: 100%; font-size: 1vw; }
-body.monitor table.week td { font-size: .8vw; height: auto; padding: .15vh .4vw; line-height: 1.2; }
+body.monitor .mon-grid { padding: 1vh 1.2vw; flex: 1; min-height: 0; overflow: auto; --mon-font: 12px; }
+body.monitor table.week { height: 100%; font-size: var(--mon-font); }
+body.monitor table.week td { font-size: var(--mon-font); height: auto; padding: 1px .4vw; line-height: 1.15; }
+/* One line per item on the monitor so all 25 rows fit on screen. */
+body.monitor .bk > div { display: inline; }
+body.monitor .bk .bk-time::before, body.monitor .bk .bk-title + .bk-time::before { content: " · "; }
+body.monitor .bk .bk-ref::after { content: " "; }
+body.monitor .sep { margin: 0; font-size: .8em; }
 body.monitor table.week tr.tall td, body.monitor table.week tr.tall th { height: auto; }
 body.monitor .bk-time { display: inline; }
-body.monitor table.week thead th { font-size: 1vw; padding: .4vh .4vw; }
+body.monitor table.week thead th { font-size: calc(var(--mon-font) * 1.2); padding: .3vh .4vw; }
 body.monitor .legend { font-size: .85vw; margin: .3vh 0 0; color: #cdd8ee; }
 body.monitor .legend i { border-color: #cdd8ee; }
-body.monitor table.week th.slot, body.monitor table.week th.slot-h { width: 7vw; font-size: .8vw; padding: 0 .3vw; }
+body.monitor table.week th.slot, body.monitor table.week th.slot-h { width: 7vw; font-size: var(--mon-font); padding: 0 .3vw; }
 body.monitor .mon-foot { height: 8vh; flex: none; display: flex; gap: 2vw; align-items: center; padding: 0 1.6vw; border-top: 2px solid var(--border); font-size: 1.15vw; }
 body.monitor .mon-foot .tag { font-weight: 700; padding: .3vh .7vw; border-radius: 6px; margin-right: .6vw; }
 body.monitor .tag.live { background: #c0392b; color: #fff; }
