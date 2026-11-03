@@ -81,6 +81,24 @@
       renderFoot(now);
     }
 
+    let lastNowNext = '';
+
+    // Countdown colour: green over 20 min, amber 20-10, solid red 10-5, then
+    // flashing red for the last 5 minutes, flashing faster as the start nears.
+    function updateCountdown(now, next) {
+      const el = $('countdown');
+      if (!el) return;
+      const [h, m, s] = now.time.split(':').map(Number);
+      const left = Math.max(0, toMin(next.start_time) * 60 - (h * 3600 + m * 60 + s));
+      const pad = (n) => String(n).padStart(2, '0');
+      const hh = Math.floor(left / 3600), mi = Math.floor((left % 3600) / 60), ss = left % 60;
+      el.textContent = `Starts in ${hh ? `${hh}:${pad(mi)}:${pad(ss)}` : `${pad(mi)}:${pad(ss)}`}`;
+      const level = left > 1200 ? 'cd-green' : left > 600 ? 'cd-amber' : left > 300 ? 'cd-red' : 'cd-flash';
+      if (!el.classList.contains(level)) el.className = `countdown ${level}`;
+      // 1.2 s per flash at 5:00 left, speeding up to 0.2 s at 0:00.
+      el.style.animationDuration = level === 'cd-flash' ? `${(0.2 + (left / 300)).toFixed(2)}s` : '';
+    }
+
     function renderFoot(now) {
       const today = rows.filter((b) => b.booking_date === now.date && (b.kind === 'show' || b.status === 'Confirmed'));
       const live = today.filter((b) => toMin(b.start_time) <= now.minutes && now.minutes < toMin(b.end_time));
@@ -88,15 +106,13 @@
       const parts = live.map((b) => `<span><span class="tag live">ON NOW</span>${esc(b.studio)} · ${esc(b.title)} (until ${hm(b.end_time)})</span>`);
       if (next) {
         parts.push(`<span><span class="tag next">NEXT</span>${hm(next.start_time)} ${esc(next.studio)} · ${esc(next.title)}</span>`);
-        // Countdown to the next programme, updated every second by tick().
-        const [h, m, s] = now.time.split(':').map(Number);
-        const left = Math.max(0, toMin(next.start_time) * 60 - (h * 3600 + m * 60 + s));
-        const pad = (n) => String(n).padStart(2, '0');
-        const hh = Math.floor(left / 3600), mmm = Math.floor((left % 3600) / 60), ss = left % 60;
-        parts.push(`<span class="countdown">Starts in ${hh ? `${hh}:${pad(mmm)}:${pad(ss)}` : `${pad(mmm)}:${pad(ss)}`}</span>`);
+        parts.push('<span class="countdown" id="countdown"></span>');
       }
       if (!parts.length) parts.push('<span>Nothing more in the studios today.</span>');
-      $('nowNext').innerHTML = parts.join('');
+      // Rebuild only when the lines change, so the countdown's flashing isn't restarted every second.
+      const html = parts.join('');
+      if (html !== lastNowNext) { $('nowNext').innerHTML = html; lastNowNext = html; }
+      if (next) updateCountdown(now, next);
       const stale = lastOk && Date.now() - lastOk > refreshSec * 3000;
       $('status').textContent = stale ? '⚠ connection lost — showing last data'
         : `updated ${new Date(lastOk || Date.now()).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
