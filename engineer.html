@@ -36,9 +36,9 @@
     <section id="codeLogin" class="card" style="max-width:420px;margin:0 auto 40px" hidden>
       <h2>Have a code from an email?</h2>
       <form class="body" id="codeForm" style="display:grid;gap:12px">
-        <p class="count" style="margin:0">New engineers and password resets get a 6-digit code by email. Enter it here, then choose your password.</p>
+        <p class="count" style="margin:0">New engineers and password resets get a code by email. Enter it here, then choose your password.</p>
         <label class="field"><span>Email</span><input name="email" type="email" required autocomplete="username"></label>
-        <label class="field"><span>Code</span><input name="code" required inputmode="numeric" autocomplete="one-time-code" maxlength="12" placeholder="123456"></label>
+        <label class="field"><span>Code</span><input name="code" required inputmode="numeric" autocomplete="one-time-code" maxlength="16" placeholder="12345678"></label>
         <div id="codeError" class="notice bad" hidden></div>
         <button class="btn primary" type="submit">Continue</button>
       </form>
@@ -230,7 +230,7 @@
         const f = ev.target;
         const email = f.email.value.trim(), token = f.code.value.replace(/\s/g, '');
         $('codeError').hidden = true;
-        if (!/^\d{6}$/.test(token)) { $('codeError').textContent = 'The code is the 6 digits from the email.'; $('codeError').hidden = false; return; }
+        if (!/^\d{6,10}$/.test(token)) { $('codeError').textContent = 'Enter the number code from the email.'; $('codeError').hidden = false; return; }
         let res = await db.auth.verifyOtp({ email, token, type: 'invite' });
         if (res.error) res = await db.auth.verifyOtp({ email, token, type: 'recovery' });
         if (res.error) { $('codeError').textContent = 'That code is wrong or has expired. Ask for a new one with "Forgot password?" above.'; $('codeError').hidden = false; return; }
