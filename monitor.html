@@ -103,12 +103,13 @@
       const today = rows.filter((b) => b.booking_date === now.date && (b.kind === 'show' || b.status === 'Confirmed'));
       const live = today.filter((b) => toMin(b.start_time) <= now.minutes && now.minutes < toMin(b.end_time));
       const next = today.filter((b) => toMin(b.start_time) > now.minutes).sort((a, b) => a.start_time.localeCompare(b.start_time))[0];
-      const parts = live.map((b) => `<span><span class="tag live">ON NOW</span>${esc(b.studio)} · ${esc(b.title)} (until ${hm(b.end_time)})</span>`);
+      // Two-column panel: label | text. The countdown sits in the text column under NEXT.
+      const parts = live.map((b) => `<span class="tag live">ON NOW</span><span class="nn-text">${esc(b.studio)} · ${esc(b.title)} (until ${hm(b.end_time)})</span>`);
       if (next) {
-        parts.push(`<span><span class="tag next">NEXT</span>${hm(next.start_time)} ${esc(next.studio)} · ${esc(next.title)}</span>`);
-        parts.push('<span class="countdown" id="countdown"></span>');
+        parts.push(`<span class="tag next">NEXT</span><span class="nn-text">${hm(next.start_time)} ${esc(next.studio)} · ${esc(next.title)}</span>`);
+        parts.push('<span></span><span class="countdown" id="countdown"></span>');
       }
-      if (!parts.length) parts.push('<span>Nothing more in the studios today.</span>');
+      if (!parts.length) parts.push('<span class="nn-none">Nothing more in the studios today.</span>');
       // Rebuild only when the lines change, so the countdown's flashing isn't restarted every second.
       const html = parts.join('');
       if (html !== lastNowNext) { $('nowNext').innerHTML = html; lastNowNext = html; }

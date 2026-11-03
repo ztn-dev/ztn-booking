@@ -180,7 +180,8 @@ table.week tr.now th.slot { background: #f5c542; color: #1b2333; }
 body.monitor { --bg: #0b0f19; --surface: #121a2b; --surface-2: #1a2440; --text: #f1f4fa; --muted: #9fb0cf;
   --border: #26324d; --busy: #17345c; --show: #1d4a2c; --clash: #6b1d2b; background: var(--bg); color: var(--text); overflow: hidden;
   display: flex; flex-direction: column; height: 100vh; }
-body.monitor .mon-head { display: flex; justify-content: space-between; align-items: center; gap: 2vw; padding: 1.2vh 1.6vw; background: var(--navy); }
+/* Header: title | ON NOW / NEXT panel | clock, all vertically centred. */
+body.monitor .mon-head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) auto; align-items: center; gap: 2vw; padding: 1.2vh 1.6vw; background: var(--navy); }
 body.monitor .mon-head h1 { margin: 0; font-size: 2.2vw; letter-spacing: .06em; }
 body.monitor .mon-head .week-label { font-size: 1.2vw; color: #cdd8ee; }
 body.monitor .clock { font-size: 2.6vw; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -199,10 +200,12 @@ body.monitor .legend { font-size: .85vw; margin: .3vh 0 0; color: #cdd8ee; }
 body.monitor .legend i { border-color: #cdd8ee; }
 body.monitor table.week th.slot, body.monitor table.week th.slot-h { width: 7vw; font-size: var(--mon-font); padding: 0 .3vw; }
 /* ON NOW / NEXT, in the header just before the clock */
-body.monitor .now-next { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-end; gap: .6vh; font-size: 1.3vw; text-align: right; }
-body.monitor .now-next > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-body.monitor .now-next .tag { font-weight: 700; padding: .2vh .6vw; border-radius: 6px; margin-right: .6vw; }
-body.monitor .clock-box { text-align: right; flex: none; }
+body.monitor .now-next { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: .9vw; row-gap: .5vh; align-items: center;
+  font-size: 1.2vw; background: rgba(0, 0, 0, .22); border: 1px solid rgba(255, 255, 255, .08); border-radius: 10px; padding: .9vh 1.1vw; }
+body.monitor .now-next .nn-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.monitor .now-next .nn-none { grid-column: 1 / -1; color: #cdd8ee; }
+body.monitor .now-next .tag { font-weight: 700; padding: .25vh 0; border-radius: 6px; min-width: 5.6em; text-align: center; font-size: .9em; letter-spacing: .04em; }
+body.monitor .clock-box { text-align: right; }
 body.monitor .tag.live { background: #c0392b; color: #fff; }
 body.monitor .tag.next { background: #1e8e3e; color: #fff; }
 body.monitor .now-next .countdown { font-weight: 800; font-variant-numeric: tabular-nums; font-size: 1.25em; }
