@@ -88,6 +88,8 @@
           <button class="btn" id="nextWeek">Next &rarr;</button>
           <button class="btn" id="thisWeek">This week</button>
           <button class="btn primary" id="quickAddBtn">+ Add to schedule</button>
+          <button class="btn" id="weekCsvBtn">Download week (Excel/CSV)</button>
+          <button class="btn" id="weekPrintBtn">Print / Save as PDF</button>
         </div>
         <div class="legend"><span><i class="l-show"></i>Regular show</span><span><i class="l-busy"></i>Confirmed / completed booking</span><span><i class="l-clash"></i>Same studio used twice</span><span>Tip: click an empty slot to add a programme there.</span></div>
         <div class="table-wrap" id="weekGrid"></div>
@@ -308,6 +310,8 @@
       $('quickDays').innerHTML = DAY_SHORT.map((d, i) => `<label><input type="checkbox" name="qday" value="${i + 1}"> ${d}</label>`).join('');
       qf.querySelectorAll('input[name="kind"]').forEach((r) => (r.onchange = quickKind));
       qf.addEventListener('submit', saveQuickAdd);
+      $('weekCsvBtn').onclick = downloadWeekCsv;
+      $('weekPrintBtn').onclick = printWeek;
       $('quickAddBtn').onclick = () => openQuickAdd(weekStart <= todayISO() && todayISO() <= addDays(weekStart, 6) ? todayISO() : weekStart);
       $('prevWeek').onclick = () => { weekStart = addDays(weekStart, -7); loadWeek(); };
       $('nextWeek').onclick = () => { weekStart = addDays(weekStart, 7); loadWeek(); };
@@ -511,6 +515,87 @@
       $('tab-shows').hidden = name !== 'shows';
       if (name === 'week') loadWeek();
       if (name === 'shows') loadShows();
+    }
+
+    // ---- Weekly archive: everything scheduled in the week shown, for the record ----
+    async function weekArchiveData() {
+      const end = addDays(weekStart, 6);
+      const [ov, bk] = await Promise.all([
+        db.rpc('week_overview', { p_start: weekStart }),
+        db.from('bookings').select('*').gte('booking_date', weekStart).lte('booking_date', end)
+          .order('booking_date').order('start_time'),
+      ]);
+      if (ov.error || bk.error) throw new Error(errMsg(ov.error || bk.error));
+      const shows = (ov.data || []).filter((r) => r.kind === 'show');
+      const items = [
+        ...shows.map((s) => ({ type: 'Regular show', date: s.booking_date, start: s.start_time, end: s.end_time, studio: s.studio, title: s.title, status: 'Scheduled' })),
+        ...bk.data.map((b) => ({ type: 'Booking', date: b.booking_date, start: b.start_time, end: b.end_time, studio: b.studio, title: b.title, status: b.status, b })),
+      ].sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start) || a.studio.localeCompare(b.studio));
+      const stamp = new Date().toLocaleString('en-GB', { timeZone: 'Africa/Harare', dateStyle: 'medium', timeStyle: 'short' });
+      return { end, items, stamp, by: me?.email || '' };
+    }
+
+    async function downloadWeekCsv() {
+      let d;
+      try { d = await weekArchiveData(); } catch (e) { return toast(`Could not build the archive: ${e.message}`, 'bad'); }
+      const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const when = (ts) => (ts ? new Date(ts).toLocaleString('en-GB', { timeZone: 'Africa/Harare' }) : '');
+      const lines = [
+        [`ZTN Studio Schedule — week ${fmtDate(weekStart)} to ${fmtDate(d.end)}`],
+        [`Exported ${d.stamp} (Harare time) by ${d.by}`],
+        [`${d.items.filter((i) => i.type === 'Booking').length} booking(s), ${d.items.filter((i) => i.type !== 'Booking').length} regular show slot(s)`],
+        [],
+        ['Date', 'Day', 'Start', 'End', 'Studio', 'Type', 'Booking Ref', 'Programme / Production', 'Status',
+          'Requester', 'Department', 'Requester Email', 'Contact', 'Producer', 'Live / Recorded', 'Crew / Technical Support',
+          'Priority', 'Setup Access', 'Submitted', 'Approved', 'Notes'],
+        ...d.items.map((i) => [i.date, dayName(i.date), hm(i.start), hm(i.end), i.studio, i.type, i.b?.ref, i.title, i.status,
+          i.b?.requester_name, i.b?.department, i.b?.requester_email, i.b?.contact_number, i.b?.producer, i.b?.live_recorded,
+          i.b?.crew, i.b?.priority, hm(i.b?.setup_time), when(i.b?.created_at), when(i.b?.approved_at), i.b?.notes]),
+      ];
+      const blob = new Blob(['﻿' + lines.map((r) => r.map(cell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+      const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `ztn-studio-week-${weekStart}.csv` });
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast(`Week of ${fmtDate(weekStart)} downloaded`, 'ok');
+    }
+
+    async function printWeek() {
+      const w = window.open('', '_blank');
+      if (!w) return toast('Allow pop-ups for this site to print the week.', 'bad');
+      let d;
+      try { d = await weekArchiveData(); } catch (e) { w.close(); return toast(`Could not build the archive: ${e.message}`, 'bad'); }
+      const firm = d.items.filter((i) => i.type !== 'Booking' || ['Confirmed', 'Completed'].includes(i.status))
+        .map((i) => ({ kind: i.type === 'Booking' ? 'booking' : 'show', ref: i.b?.ref, booking_date: i.date, start_time: i.start, end_time: i.end, studio: i.studio, title: i.title, status: i.type === 'Booking' ? i.status : 'Show' }));
+      const rowsHtml = d.items.map((i) => `<tr class="${i.type === 'Booking' ? '' : 'reg'}">
+        <td>${fmtDate(i.date, { weekday: 'short', day: '2-digit', month: 'short' })}</td><td>${hm(i.start)}–${hm(i.end)}</td>
+        <td>${esc(i.studio)}</td><td>${esc(i.b?.ref || 'Regular show')}</td><td><b>${esc(i.title)}</b></td><td>${esc(i.status)}</td>
+        <td>${esc([i.b?.requester_name, i.b?.department].filter(Boolean).join(' — '))}</td>
+        <td>${i.b?.approved_at ? new Date(i.b.approved_at).toLocaleString('en-GB', { timeZone: 'Africa/Harare' }) : ''}</td>
+        <td class="notes">${esc(i.b?.notes || '')}</td></tr>`).join('');
+      w.document.write(`<!doctype html><html data-theme="light"><head><meta charset="utf-8"><title>ZTN studio schedule ${weekStart}</title>
+        <link rel="stylesheet" href="${new URL('assets/style.css', location.href)}">
+        <style>
+          :root { color-scheme: light; --bg:#fff; --surface:#fff; --surface-2:#f2f2f2; --text:#111; --muted:#555; --border:#bbb; --busy:#ddebf7; --show:#e2efda; --clash:#ffc7ce; }
+          body { background:#fff; color:#111; margin: 12mm; font-size: 11px; }
+          h1 { font-size: 18px; margin: 0 0 2px; } .meta { color:#555; margin: 0 0 10px; }
+          table.week td { height: auto; font-size: 9px; padding: 2px 3px; } table.week th.slot { font-size: 9px; width: 70px; }
+          table.list { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 10px; }
+          table.list th, table.list td { border: 1px solid #bbb; padding: 3px 5px; text-align: left; vertical-align: top; }
+          table.list th { background: #2f5496; color: #fff; } table.list tr.reg td { background: #f3f8ef; }
+          td.notes { white-space: pre-line; max-width: 260px; color:#444; }
+          .page-break { break-before: page; }
+          @page { size: A4 landscape; margin: 10mm; }
+        </style></head><body>
+        <h1>ZTN Studio Schedule — week ${fmtDate(weekStart)} to ${fmtDate(d.end)}</h1>
+        <p class="meta">Exported ${esc(d.stamp)} (Harare time) by ${esc(d.by)} · ${d.items.filter((i) => i.type === 'Booking').length} booking(s), regular shows included · grid shows confirmed and completed bookings</p>
+        ${weekGridHTML(firm, weekStart)}
+        <div class="page-break"></div>
+        <h1>All bookings and regular shows this week</h1>
+        <table class="list"><thead><tr><th>Date</th><th>Time</th><th>Studio</th><th>Ref</th><th>Programme</th><th>Status</th><th>Requester</th><th>Approved</th><th>Notes</th></tr></thead>
+        <tbody>${rowsHtml || '<tr><td colspan="9">Nothing scheduled.</td></tr>'}</tbody></table>
+        <script>window.onload = () => setTimeout(() => window.print(), 300);<\/script>
+        </body></html>`);
+      w.document.close();
     }
 
     async function loadWeek() {
