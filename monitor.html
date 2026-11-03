@@ -20,6 +20,44 @@
   <div id="setup"></div>
   <div class="mon-grid" id="grid"></div>
   <footer class="mon-foot" id="foot"></footer>
+  <div class="fs-hint" id="fsHint" hidden>Press <b>OK</b> on the remote (or click) for full screen</div>
+
+  <script>
+    // Full screen on any button press, click or tap. Browsers only allow full
+    // screen after a user action, so the first press switches it on. Covers the
+    // standard API plus the older WebKit / Microsoft versions used by TV browsers.
+    (function () {
+      var el = document.documentElement;
+      var request = el.requestFullscreen || el.webkitRequestFullscreen || el.webkitRequestFullScreen
+        || el.mozRequestFullScreen || el.msRequestFullscreen;
+      var hint = document.getElementById('fsHint');
+      if (!request) return;
+      function isFull() {
+        return !!(document.fullscreenElement || document.webkitFullscreenElement
+          || document.webkitCurrentFullScreenElement || document.mozFullScreenElement || document.msFullscreenElement);
+      }
+      function update() { hint.hidden = isFull(); }
+      function goFull() {
+        if (isFull()) return;
+        try {
+          var p = request.call(el);
+          if (p && p.catch) p.catch(function () {});
+        } catch (e) { /* not allowed here: the hint stays up */ }
+      }
+      ['keydown', 'click', 'touchend'].forEach(function (t) { document.addEventListener(t, goFull); });
+      ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange']
+        .forEach(function (t) { document.addEventListener(t, update); });
+      update();
+
+      // Hide the mouse pointer when it hasn't moved for a few seconds.
+      var idle;
+      document.addEventListener('mousemove', function () {
+        document.body.classList.remove('no-cursor');
+        clearTimeout(idle);
+        idle = setTimeout(function () { document.body.classList.add('no-cursor'); }, 3000);
+      });
+    })();
+  </script>
 
   <script type="module">
     import { db, isConfigured, showNotConfigured, mondayOf, fmtDate, nowParts, toMin, hm, esc, weekGridHTML, errMsg } from './assets/app.js';

@@ -204,3 +204,5 @@ body.monitor .tag.live { background: #c0392b; color: #fff; }
 body.monitor .tag.next { background: #f5c542; color: #1b2333; }
 body.monitor .status-dot { margin-left: auto; color: var(--muted); font-size: .9vw; }
 body.monitor .notice { margin: 2vh 2vw; font-size: 1.2vw; }
+body.monitor .fs-hint { position: fixed; left: 50%; bottom: 10vh; transform: translateX(-50%); background: rgba(0,0,0,.75); color: #fff; padding: 1.2vh 2vw; border-radius: 999px; font-size: max(14px, 1.3vw); z-index: 50; pointer-events: none; }
+body.monitor.no-cursor, body.monitor.no-cursor * { cursor: none; }
