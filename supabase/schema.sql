@@ -356,6 +356,28 @@ drop trigger if exists bookings_notify on public.bookings;
 create trigger bookings_notify after insert or update of status on public.bookings
   for each row execute function public.bookings_notify();
 
+-- Instant sync: broadcast "changed" on the public Realtime topic "ztn-schedule"
+-- whenever bookings or weekly shows change. The message carries no data; the
+-- monitor just reloads its week. Never blocks a save.
+create or replace function public.schedule_changed() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  begin
+    perform realtime.send(jsonb_build_object('table', tg_table_name), 'changed', 'ztn-schedule', false);
+  exception when others then
+    raise warning 'ZTN sync signal skipped: %', sqlerrm;
+  end;
+  return null;
+end $$;
+
+drop trigger if exists bookings_changed on public.bookings;
+create trigger bookings_changed after insert or update or delete on public.bookings
+  for each statement execute function public.schedule_changed();
+
+drop trigger if exists weekly_shows_changed on public.weekly_shows;
+create trigger weekly_shows_changed after insert or update or delete on public.weekly_shows
+  for each statement execute function public.schedule_changed();
+
 -- ------------------------------------------------------------ public RPCs --
 -- Booking form submission (anyone with the site link).
 create or replace function public.submit_booking(p jsonb) returns jsonb
@@ -541,6 +563,7 @@ revoke all on function public.bookings_before() from public, anon, authenticated
 revoke all on function public.bookings_after() from public, anon, authenticated;
 revoke all on function public.bookings_notify() from public, anon, authenticated;
 revoke all on function public.engineer_emails() from public, anon, authenticated;
+revoke all on function public.schedule_changed() from public, anon, authenticated;
 do $$
 begin
   if exists (select 1 from pg_roles where rolname = 'service_role') then
