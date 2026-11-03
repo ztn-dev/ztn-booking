@@ -86,7 +86,15 @@
       const live = today.filter((b) => toMin(b.start_time) <= now.minutes && now.minutes < toMin(b.end_time));
       const next = today.filter((b) => toMin(b.start_time) > now.minutes).sort((a, b) => a.start_time.localeCompare(b.start_time))[0];
       const parts = live.map((b) => `<span><span class="tag live">ON NOW</span>${esc(b.studio)} · ${esc(b.title)} (until ${hm(b.end_time)})</span>`);
-      if (next) parts.push(`<span><span class="tag next">NEXT</span>${hm(next.start_time)} ${esc(next.studio)} · ${esc(next.title)}</span>`);
+      if (next) {
+        parts.push(`<span><span class="tag next">NEXT</span>${hm(next.start_time)} ${esc(next.studio)} · ${esc(next.title)}</span>`);
+        // Countdown to the next programme, updated every second by tick().
+        const [h, m, s] = now.time.split(':').map(Number);
+        const left = Math.max(0, toMin(next.start_time) * 60 - (h * 3600 + m * 60 + s));
+        const pad = (n) => String(n).padStart(2, '0');
+        const hh = Math.floor(left / 3600), mmm = Math.floor((left % 3600) / 60), ss = left % 60;
+        parts.push(`<span class="countdown">Starts in ${hh ? `${hh}:${pad(mmm)}:${pad(ss)}` : `${pad(mmm)}:${pad(ss)}`}</span>`);
+      }
       if (!parts.length) parts.push('<span>Nothing more in the studios today.</span>');
       $('nowNext').innerHTML = parts.join('');
       const stale = lastOk && Date.now() - lastOk > refreshSec * 3000;

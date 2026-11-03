@@ -204,7 +204,8 @@ body.monitor .now-next > span { white-space: nowrap; overflow: hidden; text-over
 body.monitor .now-next .tag { font-weight: 700; padding: .2vh .6vw; border-radius: 6px; margin-right: .6vw; }
 body.monitor .clock-box { text-align: right; flex: none; }
 body.monitor .tag.live { background: #c0392b; color: #fff; }
-body.monitor .tag.next { background: #f5c542; color: #1b2333; }
+body.monitor .tag.next { background: #c0392b; color: #fff; }
+body.monitor .now-next .countdown { color: #ff6b6b; font-weight: 700; font-variant-numeric: tabular-nums; font-size: 1.15em; }
 body.monitor .status-dot { color: #cdd8ee; font-size: .8vw; }
 body.monitor .status-dot.stale { color: #f5c542; font-weight: 700; }
 body.monitor .notice { margin: 2vh 2vw; font-size: 1.2vw; }
