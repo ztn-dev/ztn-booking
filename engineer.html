@@ -33,6 +33,17 @@
       </form>
     </section>
 
+    <section id="codeLogin" class="card" style="max-width:420px;margin:0 auto 40px" hidden>
+      <h2>Have a code from an email?</h2>
+      <form class="body" id="codeForm" style="display:grid;gap:12px">
+        <p class="count" style="margin:0">New engineers and password resets get a 6-digit code by email. Enter it here, then choose your password.</p>
+        <label class="field"><span>Email</span><input name="email" type="email" required autocomplete="username"></label>
+        <label class="field"><span>Code</span><input name="code" required inputmode="numeric" autocomplete="one-time-code" maxlength="12" placeholder="123456"></label>
+        <div id="codeError" class="notice bad" hidden></div>
+        <button class="btn primary" type="submit">Continue</button>
+      </form>
+    </section>
+
     <section id="setpw" class="card" style="max-width:420px;margin:40px auto" hidden>
       <h2 id="setpwTitle">Set your password</h2>
       <form class="body" id="setpwForm" style="display:grid;gap:12px">
@@ -210,8 +221,23 @@
         if (!email) { $('loginError').textContent = 'Type your email above first.'; $('loginError').hidden = false; return; }
         const { error } = await db.auth.resetPasswordForEmail(email, { redirectTo: location.href.split('#')[0] });
         if (error) { $('loginError').textContent = errMsg(error); $('loginError').hidden = false; return; }
-        toast(`If ${email} has an engineer account, a reset link is on its way.`, 'ok', 8000);
+        toast(`If ${email} has an engineer account, an email with a code is on its way. Enter it below.`, 'ok', 8000);
+        $('codeForm').email.value = email;
       };
+      // Codes instead of links: work-email link scanners can't break or use them up.
+      $('codeForm').addEventListener('submit', async (ev) => {
+        ev.preventDefault();
+        const f = ev.target;
+        const email = f.email.value.trim(), token = f.code.value.replace(/\s/g, '');
+        $('codeError').hidden = true;
+        if (!/^\d{6}$/.test(token)) { $('codeError').textContent = 'The code is the 6 digits from the email.'; $('codeError').hidden = false; return; }
+        let res = await db.auth.verifyOtp({ email, token, type: 'invite' });
+        if (res.error) res = await db.auth.verifyOtp({ email, token, type: 'recovery' });
+        if (res.error) { $('codeError').textContent = 'That code is wrong or has expired. Ask for a new one with "Forgot password?" above.'; $('codeError').hidden = false; return; }
+        needPassword = true;
+        f.reset();
+        route(res.data.session);
+      });
       $('setpwForm').addEventListener('submit', async (ev) => {
         ev.preventDefault();
         const f = ev.target;
@@ -259,13 +285,14 @@
     let channel;
     async function route(session) {
       $('login').hidden = !!session;
+      $('codeLogin').hidden = !!session;
       $('signOut').hidden = !session;
       $('app').hidden = true;
       $('denied').hidden = true;
       $('setpw').hidden = true;
       if (!session) { if (channel) { db.removeChannel(channel); channel = null; } return; }
       if (needPassword) {
-        $('setpwTitle').textContent = AUTH_LINK_TYPE === 'invite' ? 'Welcome — set your password' : 'Choose a new password';
+        $('setpwTitle').textContent = 'Choose your password';
         $('setpwWho').textContent = `Signed in as ${session.user.email}`;
         $('setpw').hidden = false;
         return;
