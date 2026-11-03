@@ -180,7 +180,7 @@ table.week tr.now th.slot { background: #f5c542; color: #1b2333; }
 body.monitor { --bg: #0b0f19; --surface: #121a2b; --surface-2: #1a2440; --text: #f1f4fa; --muted: #9fb0cf;
   --border: #26324d; --busy: #17345c; --show: #1d4a2c; --clash: #6b1d2b; background: var(--bg); color: var(--text); overflow: hidden;
   display: flex; flex-direction: column; height: 100vh; }
-body.monitor .mon-head { display: flex; justify-content: space-between; align-items: center; padding: 1.2vh 1.6vw; background: var(--navy); }
+body.monitor .mon-head { display: flex; justify-content: space-between; align-items: center; gap: 2vw; padding: 1.2vh 1.6vw; background: var(--navy); }
 body.monitor .mon-head h1 { margin: 0; font-size: 2.2vw; letter-spacing: .06em; }
 body.monitor .mon-head .week-label { font-size: 1.2vw; color: #cdd8ee; }
 body.monitor .clock { font-size: 2.6vw; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -198,11 +198,15 @@ body.monitor table.week thead th { font-size: calc(var(--mon-font) * 1.2); paddi
 body.monitor .legend { font-size: .85vw; margin: .3vh 0 0; color: #cdd8ee; }
 body.monitor .legend i { border-color: #cdd8ee; }
 body.monitor table.week th.slot, body.monitor table.week th.slot-h { width: 7vw; font-size: var(--mon-font); padding: 0 .3vw; }
-body.monitor .mon-foot { height: 8vh; flex: none; display: flex; gap: 2vw; align-items: center; padding: 0 1.6vw; border-top: 2px solid var(--border); font-size: 1.15vw; }
-body.monitor .mon-foot .tag { font-weight: 700; padding: .3vh .7vw; border-radius: 6px; margin-right: .6vw; }
+/* ON NOW / NEXT, in the header just before the clock */
+body.monitor .now-next { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-end; gap: .6vh; font-size: 1.3vw; text-align: right; }
+body.monitor .now-next > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+body.monitor .now-next .tag { font-weight: 700; padding: .2vh .6vw; border-radius: 6px; margin-right: .6vw; }
+body.monitor .clock-box { text-align: right; flex: none; }
 body.monitor .tag.live { background: #c0392b; color: #fff; }
 body.monitor .tag.next { background: #f5c542; color: #1b2333; }
-body.monitor .status-dot { margin-left: auto; color: var(--muted); font-size: .9vw; }
+body.monitor .status-dot { color: #cdd8ee; font-size: .8vw; }
+body.monitor .status-dot.stale { color: #f5c542; font-weight: 700; }
 body.monitor .notice { margin: 2vh 2vw; font-size: 1.2vw; }
 body.monitor .fs-hint { position: fixed; left: 50%; bottom: 10vh; transform: translateX(-50%); background: rgba(0,0,0,.75); color: #fff; padding: 1.2vh 2vw; border-radius: 999px; font-size: max(14px, 1.3vw); z-index: 50; pointer-events: none; }
 body.monitor.no-cursor, body.monitor.no-cursor * { cursor: none; }
