@@ -88,6 +88,7 @@
           <strong id="weekLabel"></strong>
           <button class="btn" id="nextWeek">Next &rarr;</button>
           <button class="btn" id="thisWeek">This week</button>
+          <label class="field" style="width:auto"><span>Go to week of</span><input type="date" id="weekPick"></label>
           <button class="btn primary" id="quickAddBtn">+ Add to schedule</button>
           <button class="btn" id="weekCsvBtn">Download week (Excel/CSV)</button>
           <button class="btn" id="weekPrintBtn">Print / Save as PDF</button>
@@ -96,6 +97,24 @@
         <div class="table-wrap" id="weekGrid"></div>
       </div>
       <div id="tab-archive" hidden>
+        <section class="card" style="margin-bottom:16px">
+          <h2>Download the schedule for any dates</h2>
+          <div class="body">
+            <div class="actions">
+              <label class="field" style="width:auto"><span>From</span><input type="date" id="rangeFrom"></label>
+              <label class="field" style="width:auto"><span>To</span><input type="date" id="rangeTo"></label>
+              <button class="btn" id="rangeThisWeek" style="align-self:end">This week</button>
+              <button class="btn" id="rangeLastWeek" style="align-self:end">Last week</button>
+              <button class="btn" id="rangeThisMonth" style="align-self:end">This month</button>
+            </div>
+            <div class="actions" style="margin-top:12px">
+              <button class="btn primary" id="rangeCsvBtn">Download (Excel/CSV)</button>
+              <button class="btn" id="rangePrintBtn">Print / Save as PDF</button>
+              <span class="count">Live data: every regular show and every booking (all statuses) between the two dates. Up to one year at a time.</span>
+            </div>
+          </div>
+        </section>
+        <h3 style="margin:0 0 8px">Saved weekly snapshots</h3>
         <p class="count" style="margin:0 0 10px">A snapshot of every week is saved automatically each Sunday at 23:55. It holds the regular shows and every booking that week (all statuses) and cannot be changed afterwards. The fingerprint (SHA-256) proves a snapshot has not been altered.</p>
         <div class="actions" style="margin-bottom:10px">
           <label class="field" style="width:auto"><span>Week</span><input type="date" id="archiveWeek"></label>
@@ -326,6 +345,31 @@
       $('prevWeek').onclick = () => { weekStart = addDays(weekStart, -7); loadWeek(); };
       $('nextWeek').onclick = () => { weekStart = addDays(weekStart, 7); loadWeek(); };
       $('thisWeek').onclick = () => { weekStart = mondayOf(todayISO()); loadWeek(); };
+      $('weekPick').onchange = () => { if ($('weekPick').value) { weekStart = mondayOf($('weekPick').value); loadWeek(); } };
+      const setRange = (from, to) => { $('rangeFrom').value = from; $('rangeTo').value = to; };
+      const thisMon = () => mondayOf(todayISO());
+      setRange(thisMon(), addDays(thisMon(), 6));
+      $('rangeThisWeek').onclick = () => setRange(thisMon(), addDays(thisMon(), 6));
+      $('rangeLastWeek').onclick = () => setRange(addDays(thisMon(), -7), addDays(thisMon(), -1));
+      $('rangeThisMonth').onclick = () => {
+        const [y, m] = todayISO().split('-').map(Number);
+        const last = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+        setRange(`${y}-${String(m).padStart(2, '0')}-01`, last);
+      };
+      const pickRange = () => {
+        const from = $('rangeFrom').value, to = $('rangeTo').value;
+        if (!from || !to) throw new Error('Choose both a From and a To date.');
+        if (to < from) throw new Error('The To date must be on or after the From date.');
+        if (addDays(from, 366) < to) throw new Error('Choose up to one year at a time.');
+        return [from, to];
+      };
+      $('rangeCsvBtn').onclick = () => { try { const [f, t] = pickRange(); liveRange(f, t).then(downloadWeekCsv).catch((e) => toast(e.message, 'bad')); } catch (e) { toast(e.message, 'bad'); } };
+      $('rangePrintBtn').onclick = () => {
+        let f, t;
+        try { [f, t] = pickRange(); } catch (e) { return toast(e.message, 'bad'); }
+        const w = window.open('', '_blank');
+        liveRange(f, t).then((d) => printWeek(d, w)).catch((e) => { w?.close(); toast(e.message, 'bad'); });
+      };
       $('editForm').addEventListener('submit', saveEditor);
       $('deleteBtn').onclick = deleteBooking;
       const sf = $('showForm');
@@ -535,21 +579,30 @@
     const byTime = (a, b) => (a.date + a.start).localeCompare(b.date + b.start) || a.studio.localeCompare(b.studio);
     const harare = (ts, opts = {}) => (ts ? new Date(ts).toLocaleString('en-GB', { timeZone: 'Africa/Harare', ...opts }) : '');
 
-    async function liveWeek() {
-      const end = addDays(weekStart, 6);
-      const [ov, bk] = await Promise.all([
-        db.rpc('week_overview', { p_start: weekStart }),
-        db.from('bookings').select('*').gte('booking_date', weekStart).lte('booking_date', end)
+    const liveWeek = () => liveRange(weekStart, addDays(weekStart, 6));
+
+    // Everything scheduled between two dates (inclusive), from live data.
+    async function liveRange(from, to) {
+      const mondays = [];
+      for (let m = mondayOf(from); m <= to; m = addDays(m, 7)) mondays.push(m);
+      const [bk, ...ovs] = await Promise.all([
+        db.from('bookings').select('*').gte('booking_date', from).lte('booking_date', to)
           .order('booking_date').order('start_time'),
+        ...mondays.map((m) => db.rpc('week_overview', { p_start: m })),
       ]);
-      if (ov.error || bk.error) throw new Error(errMsg(ov.error || bk.error));
+      const bad = [bk, ...ovs].find((r) => r.error);
+      if (bad) throw new Error(errMsg(bad.error));
+      const shows = ovs.flatMap((o) => o.data || []).filter((r) => r.kind === 'show' && r.booking_date >= from && r.booking_date <= to);
       const items = [
-        ...(ov.data || []).filter((r) => r.kind === 'show').map((s) => ({ type: 'Regular show', date: s.booking_date, start: hm(s.start_time), end: hm(s.end_time), studio: s.studio, title: s.title, status: 'Scheduled' })),
+        ...shows.map((s) => ({ type: 'Regular show', date: s.booking_date, start: hm(s.start_time), end: hm(s.end_time), studio: s.studio, title: s.title, status: 'Scheduled' })),
         ...bk.data.map((b) => ({ type: 'Booking', date: b.booking_date, start: hm(b.start_time), end: hm(b.end_time), studio: b.studio, title: b.title, status: b.status,
           b: { ref: b.ref, requester: b.requester_name, department: b.department, email: b.requester_email, contact: b.contact_number, producer: b.producer,
             live_recorded: b.live_recorded, crew: b.crew, priority: b.priority, setup: hm(b.setup_time), submitted: b.created_at, approved: b.approved_at, notes: b.notes } })),
       ].sort(byTime);
-      return { ws: weekStart, end, items, header: `Exported ${harare(Date.now(), { dateStyle: 'medium', timeStyle: 'short' })} (Harare time) by ${me?.email || ''}`, file: `ztn-studio-week-${weekStart}` };
+      const oneWeek = from === mondayOf(from) && to === addDays(from, 6);
+      return { ws: from, end: to, weeks: mondays, items,
+        header: `Exported ${harare(Date.now(), { dateStyle: 'medium', timeStyle: 'short' })} (Harare time) by ${me?.email || ''}`,
+        file: oneWeek ? `ztn-studio-week-${from}` : `ztn-studio-${from}-to-${to}` };
     }
 
     function archivedWeek(row) {
@@ -565,7 +618,7 @@
     function downloadWeekCsv(d) {
       const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
       const lines = [
-        [`ZTN Studio Schedule — week ${fmtDate(d.ws)} to ${fmtDate(d.end)}`],
+        [`ZTN Studio Schedule — ${fmtDate(d.ws)} to ${fmtDate(d.end)}`],
         [d.header],
         [`${d.items.filter((i) => i.type === 'Booking').length} booking(s), ${d.items.filter((i) => i.type !== 'Booking').length} regular show slot(s)`],
         [],
@@ -580,7 +633,7 @@
       const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `${d.file}.csv` });
       a.click();
       URL.revokeObjectURL(a.href);
-      toast(`Week of ${fmtDate(d.ws)} downloaded`, 'ok');
+      toast(`Schedule ${fmtDate(d.ws)} – ${fmtDate(d.end)} downloaded`, 'ok');
     }
 
     // w: a window opened straight from the click (browsers block pop-ups opened later).
@@ -608,11 +661,11 @@
           .page-break { break-before: page; }
           @page { size: A4 landscape; margin: 10mm; }
         </style></head><body>
-        <h1>ZTN Studio Schedule — week ${fmtDate(d.ws)} to ${fmtDate(d.end)}</h1>
+        <h1>ZTN Studio Schedule — ${fmtDate(d.ws)} to ${fmtDate(d.end)}</h1>
         <p class="meta">${esc(d.header)} · ${d.items.filter((i) => i.type === 'Booking').length} booking(s)</p>
-        ${weekGridHTML(firm, d.ws)}
+        ${(d.weeks || [d.ws]).map((m, i) => `${i ? '<div class="page-break"></div>' : ''}${(d.weeks || []).length > 1 ? `<h2 style="font-size:14px;margin:8px 0 4px">Week of ${fmtDate(m)}</h2>` : ''}${weekGridHTML(firm.filter((x) => x.booking_date >= m && x.booking_date <= addDays(m, 6)), m)}`).join('')}
         <div class="page-break"></div>
-        <h1>All bookings and regular shows this week</h1>
+        <h1>All bookings and regular shows ${(d.weeks || []).length > 1 ? 'in this period' : 'this week'}</h1>
         <table class="list"><thead><tr><th>Date</th><th>Time</th><th>Studio</th><th>Ref</th><th>Programme</th><th>Status</th><th>Requester</th><th>Approved</th><th>Notes</th></tr></thead>
         <tbody>${rowsHtml || '<tr><td colspan="9">Nothing scheduled.</td></tr>'}</tbody></table>
         <script>window.onload = () => setTimeout(() => window.print(), 300);<\/script>
