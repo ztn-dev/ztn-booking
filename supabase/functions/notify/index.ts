@@ -4,14 +4,22 @@
 // thing a caller controls is which booking id to look at. Each status is
 // emailed once: notified_status is claimed atomically before sending.
 //
-// Function secret (Dashboard -> Edge Functions -> Secrets):
+// Mail goes out through one of two senders:
+//   SMTP (e.g. Gmail)  used when the SMTP_PASSWORD secret is set
+//   Resend             used otherwise, with the RESEND_API_KEY secret
+// Function secrets (Dashboard -> Edge Functions -> Secrets):
+//   SMTP_PASSWORD    e.g. a Gmail App Password
 //   RESEND_API_KEY   Resend API key
 // Settings (public.app_settings, set in the SQL Editor):
-//   from_email       e.g. "ZTN Studio <studio@notify.ztn.co.zw>" (domain verified in Resend)
+//   from_email       e.g. "ZTN Studio <ztnget@gmail.com>"
 //   site_url         e.g. https://ztn-dev.github.io/ztn-booking (adds links)
+//   smtp_host        e.g. smtp.gmail.com   (port 465, TLS; port 587 is blocked on Supabase)
+//   smtp_user        e.g. ztnget@gmail.com
 // Engineers' addresses come from public.engineers, so new engineers are
 // included automatically.
 // SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are provided by Supabase.
+
+import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 
 type Booking = {
   id: number;
@@ -150,14 +158,36 @@ Deno.serve(async (req) => {
     if (!claimed.length) return new Response("already handled", { status: 200 });
 
     const settings = Object.fromEntries(
-      ((await db("app_settings?key=in.(from_email,site_url)&select=key,value")) as { key: string; value: string }[])
+      ((await db("app_settings?key=in.(from_email,site_url,smtp_host,smtp_user)&select=key,value")) as { key: string; value: string }[])
         .map((s) => [s.key, s.value]),
     );
     const engineers = prev === null ? ((await db("rpc/engineer_emails", { method: "POST", body: "{}" })) as string[]) : [];
     const msg = buildMessage(b, prev === null, engineers, (settings.site_url ?? "").replace(/\/$/, ""));
     if (!msg) return new Response("no email for this change", { status: 200 });
-    if (!env("RESEND_API_KEY")) return new Response("RESEND_API_KEY not set", { status: 200 });
 
+    if (env("SMTP_PASSWORD") && settings.smtp_host && settings.smtp_user) {
+      const client = new SMTPClient({
+        connection: {
+          hostname: settings.smtp_host,
+          port: 465,
+          tls: true,
+          auth: { username: settings.smtp_user, password: env("SMTP_PASSWORD") },
+        },
+      });
+      try {
+        await client.send({
+          from: settings.from_email || settings.smtp_user,
+          to: msg.to,
+          subject: msg.subject,
+          content: msg.text,
+        });
+      } finally {
+        await client.close();
+      }
+      return new Response("sent via SMTP", { status: 200 });
+    }
+
+    if (!env("RESEND_API_KEY")) return new Response("no email sender configured", { status: 200 });
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${env("RESEND_API_KEY")}`, "Content-Type": "application/json" },

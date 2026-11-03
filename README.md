@@ -74,6 +74,16 @@ The database enforces all of this, so nobody can get around it from the browser.
    If email isn't set up, bookings still work. They just aren't emailed.
 6. **Invite emails (engineer accounts):** in Supabase open **Authentication → Emails → SMTP Settings**, turn on custom SMTP and enter host `smtp.resend.com`, port `465`, username `resend`, the Resend API key as the password, and the same sender address.
 
+**Alternative: send from a Gmail address.** Turn on 2-Step Verification for the Gmail account and create an App Password. Add it as the Edge Function secret `SMTP_PASSWORD`, then run:
+```sql
+insert into public.app_settings (key, value) values
+  ('smtp_host',  'smtp.gmail.com'),
+  ('smtp_user',  'yourname@gmail.com'),
+  ('from_email', 'ZTN Studio <yourname@gmail.com>')
+on conflict (key) do update set value = excluded.value;
+```
+When `SMTP_PASSWORD` is set, the function sends through SMTP (port 465); otherwise it uses Resend. For invite emails, use the same host, port 465, the Gmail address as the username and the App Password in **Authentication → Emails → SMTP Settings**. Gmail allows about 500 emails a day.
+
 ### 6. Studio monitor
 - **Recommended:** a mini PC or TV stick running Chrome or Edge in kiosk mode. It opens full-screen at startup and recovers on its own after a power cut:
   ```
