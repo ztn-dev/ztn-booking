@@ -58,25 +58,20 @@ The database enforces all of this, so nobody can get around it from the browser.
 **Optional: your own address, such as `booking.ztn.co.zw`.** In **Settings → Pages → Custom domain**, enter the address. Then ask whoever manages the ztn.co.zw DNS to add a `CNAME` record pointing `booking` to `<your-account>.github.io`.
 
 ### 5. Email (Resend)
-1. Sign up at <https://resend.com>. Under **Domains**, add `ztn.co.zw` (or a subdomain) and add the DNS records it shows you. Until the domain is verified, Resend only delivers to your own address.
-2. Create an **API key**.
+1. Sign up at <https://resend.com>. Under **Domains**, add a sending subdomain such as `notify.ztn.co.zw` and add the DNS records it shows you. Until the domain is verified, Resend only delivers to your own address.
+2. Create an **API key** with *Sending access*.
 3. In Supabase, open **Edge Functions → Deploy a new function → Via editor**. Name it `notify` and paste [`supabase/functions/notify/index.ts`](supabase/functions/notify/index.ts). Deploy it, then in the function's settings turn **off** "Verify JWT".
-4. Under **Edge Functions → Secrets**, add these:
-
-   | Name | Value |
-   |---|---|
-   | `RESEND_API_KEY` | the Resend key |
-   | `FROM_EMAIL` | e.g. `ZTN Studio <studio@ztn.co.zw>` |
-   | `ENGINEER_EMAIL` | where new requests go |
-   | `NOTIFY_SECRET` | any long random text you make up |
-   | `SITE_URL` | your site address, e.g. `https://booking.ztn.co.zw` |
-
-5. Tell the database where to send changes. Run this in the SQL Editor, using your project ref and the same secret as above:
+4. Under **Edge Functions → Secrets**, add `RESEND_API_KEY` with the Resend key. That's the only secret: the function reads each booking itself, and new-request emails go to everyone on the engineers list.
+5. Tell the database where the function is and who emails come from. Run this in the SQL Editor:
    ```sql
-   select vault.create_secret('https://<project-ref>.supabase.co/functions/v1/notify', 'ztn_notify_url');
-   select vault.create_secret('<same NOTIFY_SECRET value>', 'ztn_notify_secret');
+   insert into public.app_settings (key, value) values
+     ('notify_url', 'https://<project-ref>.supabase.co/functions/v1/notify'),
+     ('from_email', 'ZTN Studio <studio@notify.ztn.co.zw>'),
+     ('site_url',   'https://<your-site>')
+   on conflict (key) do update set value = excluded.value;
    ```
    If email isn't set up, bookings still work. They just aren't emailed.
+6. **Invite emails (engineer accounts):** in Supabase open **Authentication → Emails → SMTP Settings**, turn on custom SMTP and enter host `smtp.resend.com`, port `465`, username `resend`, the Resend API key as the password, and the same sender address.
 
 ### 6. Studio monitor
 - **Recommended:** a mini PC or TV stick running Chrome or Edge in kiosk mode. It opens full-screen at startup and recovers on its own after a power cut:

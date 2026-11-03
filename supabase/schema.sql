@@ -87,6 +87,9 @@ create table if not exists public.bookings (
   check (setup_time is null or setup_time <= start_time)
 );
 
+-- Last status the email function handled; stops duplicate emails.
+alter table public.bookings add column if not exists notified_status text;
+
 create index if not exists bookings_date_studio_idx on public.bookings (booking_date, studio);
 create index if not exists bookings_status_idx on public.bookings (status);
 
@@ -198,6 +201,10 @@ declare
   firm  text[];
   shows text[];
 begin
+  -- The email function only records notified_status: leave the booking alone.
+  if tg_op = 'UPDATE' and (to_jsonb(new) - 'notified_status') = (to_jsonb(old) - 'notified_status') then
+    return new;
+  end if;
   new.updated_at := now();
   new.notes := coalesce(new.notes, '');
 
@@ -299,34 +306,38 @@ begin
   return null;
 end $$;
 
--- Email hook: posts the change to the "notify" edge function via pg_net.
--- URL and shared secret live in Supabase Vault (see README). Never blocks a save.
+-- Email hook: tells the "notify" edge function which booking changed, via pg_net.
+-- Only the id is sent; the function reads the booking itself, so a forged call
+-- cannot invent content. URL comes from app_settings.notify_url (see README).
+-- Never blocks a save.
 create or replace function public.bookings_notify() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare
-  v_url    text;
-  v_secret text;
+  v_url text;
 begin
   if tg_op = 'UPDATE' and new.status is not distinct from old.status then
     return null;
   end if;
   begin
-    select decrypted_secret into v_url    from vault.decrypted_secrets where name = 'ztn_notify_url';
-    select decrypted_secret into v_secret from vault.decrypted_secrets where name = 'ztn_notify_secret';
-    if v_url is not null then
+    select value into v_url from public.app_settings where key = 'notify_url';
+    if coalesce(v_url, '') <> '' then
       perform net.http_post(
         url     := v_url,
-        headers := jsonb_build_object('Content-Type', 'application/json', 'x-ztn-secret', coalesce(v_secret, '')),
-        body    := jsonb_build_object(
-                     'type', tg_op,
-                     'old_status', case when tg_op = 'UPDATE' then old.status end,
-                     'record', to_jsonb(new) - 'approved_by'));
+        headers := jsonb_build_object('Content-Type', 'application/json'),
+        body    := jsonb_build_object('id', new.id));
     end if;
   exception when others then
     raise warning 'ZTN notify skipped: %', sqlerrm;
   end;
   return null;
 end $$;
+
+-- Engineer addresses for new-request emails (edge function only).
+create or replace function public.engineer_emails() returns setof text
+language sql stable security definer set search_path = public as $$
+  select u.email::text from public.engineers e join auth.users u on u.id = e.user_id
+   where u.email is not null order by 1
+$$;
 
 drop trigger if exists bookings_before on public.bookings;
 create trigger bookings_before before insert or update on public.bookings
@@ -524,6 +535,13 @@ revoke all on function public._close_completed() from public, anon, authenticate
 revoke all on function public.bookings_before() from public, anon, authenticated;
 revoke all on function public.bookings_after() from public, anon, authenticated;
 revoke all on function public.bookings_notify() from public, anon, authenticated;
+revoke all on function public.engineer_emails() from public, anon, authenticated;
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'service_role') then
+    grant execute on function public.engineer_emails() to service_role;
+  end if;
+end $$;
 
 grant execute on function public.submit_booking(jsonb) to anon, authenticated;
 grant execute on function public.day_busy(date, text) to anon, authenticated;
