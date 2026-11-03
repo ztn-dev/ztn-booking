@@ -210,3 +210,6 @@ body.monitor .status-dot.stale { color: #f5c542; font-weight: 700; }
 body.monitor .notice { margin: 2vh 2vw; font-size: 1.2vw; }
 body.monitor .fs-hint { position: fixed; left: 50%; bottom: 10vh; transform: translateX(-50%); background: rgba(0,0,0,.75); color: #fff; padding: 1.2vh 2vw; border-radius: 999px; font-size: max(14px, 1.3vw); z-index: 50; pointer-events: none; }
 body.monitor.no-cursor, body.monitor.no-cursor * { cursor: none; }
+table.week td.addable { cursor: pointer; }
+table.week td.addable:hover { background: var(--surface-2); box-shadow: inset 0 0 0 2px var(--focus); }
+table.week td.addable:hover::after { content: "+ Add"; color: var(--focus); font-weight: 600; font-size: .8rem; }

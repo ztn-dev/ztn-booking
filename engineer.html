@@ -87,8 +87,9 @@
           <strong id="weekLabel"></strong>
           <button class="btn" id="nextWeek">Next &rarr;</button>
           <button class="btn" id="thisWeek">This week</button>
+          <button class="btn primary" id="quickAddBtn">+ Add to schedule</button>
         </div>
-        <div class="legend"><span><i class="l-show"></i>Regular show</span><span><i class="l-busy"></i>Confirmed / completed booking</span><span><i class="l-clash"></i>Same studio used twice</span></div>
+        <div class="legend"><span><i class="l-show"></i>Regular show</span><span><i class="l-busy"></i>Confirmed / completed booking</span><span><i class="l-clash"></i>Same studio used twice</span><span>Tip: click an empty slot to add a programme there.</span></div>
         <div class="table-wrap" id="weekGrid"></div>
       </div>
       <div id="tab-shows" hidden>
@@ -128,6 +129,39 @@
         <div class="actions">
           <button class="btn" value="cancel" formnovalidate>Cancel</button>
           <button class="btn primary" type="submit" id="saveBtn" value="save">Save</button>
+        </div>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="quickAdd" style="width:min(560px,calc(100vw - 32px))">
+    <form method="dialog" id="quickForm">
+      <header><h3>Add to schedule</h3><button class="btn" value="cancel" formnovalidate aria-label="Close">&#x2715;</button></header>
+      <div class="body">
+        <div class="checks" style="margin-bottom:12px">
+          <label><input type="radio" name="kind" value="once" checked> One-off programme (this date only)</label>
+          <label><input type="radio" name="kind" value="weekly"> Weekly show (repeats every week)</label>
+        </div>
+        <div class="grid">
+          <label class="field span-3"><span>Programme / show *</span><input name="title" required maxlength="200"></label>
+          <label class="field" data-for="once"><span>Date *</span><input name="date" type="date"></label>
+          <fieldset class="field span-3" data-for="weekly" style="border:0;padding:0;margin:0" hidden>
+            <span>Days *</span>
+            <div class="checks" id="quickDays"></div>
+          </fieldset>
+          <label class="field"><span>Start *</span><input name="start" type="time" required step="300"></label>
+          <label class="field"><span>End *</span><input name="end" type="time" required step="300"></label>
+          <label class="field"><span>Studio</span><select name="studio"></select></label>
+          <label class="field span-3"><span>Notes</span><input name="notes" maxlength="500"></label>
+        </div>
+        <p class="count" style="margin:12px 0 0">Goes straight onto the schedule and the studio monitor as confirmed. No booking form and no request emails.</p>
+        <div id="quickError" class="notice bad" style="margin:12px 0 0" hidden></div>
+      </div>
+      <footer>
+        <span></span>
+        <div class="actions">
+          <button class="btn" value="cancel" formnovalidate>Cancel</button>
+          <button class="btn primary" type="submit" value="save">Add</button>
         </div>
       </footer>
     </form>
@@ -180,7 +214,7 @@
     import {
       db, isConfigured, showNotConfigured, STATUSES, STUDIOS, PRIORITIES, LIVE_RECORDED,
       todayISO, addDays, mondayOf, fmtDate, dayName, hm, esc, statusPill, errMsg, toast, weekGridHTML, nowParts,
-      DAY_SHORT, daysLabel, AUTH_LINK_TYPE,
+      DAY_SHORT, daysLabel, AUTH_LINK_TYPE, SLOT_BOUNDS, mm,
     } from './assets/app.js';
 
     const $ = (id) => document.getElementById(id);
@@ -190,6 +224,7 @@
     let editing = null;
     let shows = [];
     let editingShow = null;
+    let me = null; // signed-in engineer's user record
     // Arrived from an invite or password-reset email: ask for a password first.
     let needPassword = AUTH_LINK_TYPE === 'invite' || AUTH_LINK_TYPE === 'recovery';
 
@@ -268,6 +303,12 @@
       $('closeBtn').onclick = closeCompleted;
       $('csvBtn').onclick = exportCsv;
       document.querySelectorAll('.tabs button').forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
+      const qf = $('quickForm');
+      qf.studio.innerHTML = opts(STUDIOS);
+      $('quickDays').innerHTML = DAY_SHORT.map((d, i) => `<label><input type="checkbox" name="qday" value="${i + 1}"> ${d}</label>`).join('');
+      qf.querySelectorAll('input[name="kind"]').forEach((r) => (r.onchange = quickKind));
+      qf.addEventListener('submit', saveQuickAdd);
+      $('quickAddBtn').onclick = () => openQuickAdd(weekStart <= todayISO() && todayISO() <= addDays(weekStart, 6) ? todayISO() : weekStart);
       $('prevWeek').onclick = () => { weekStart = addDays(weekStart, -7); loadWeek(); };
       $('nextWeek').onclick = () => { weekStart = addDays(weekStart, 7); loadWeek(); };
       $('thisWeek').onclick = () => { weekStart = mondayOf(todayISO()); loadWeek(); };
@@ -299,6 +340,7 @@
       }
       const { data: isEng, error } = await db.rpc('is_engineer');
       if (error || !isEng) { $('denied').hidden = false; return; }
+      me = session.user;
       $('app').hidden = false;
       await load();
       if (!channel) {
@@ -476,6 +518,72 @@
       const { data, error } = await db.rpc('week_overview', { p_start: weekStart });
       if (error) return toast(errMsg(error), 'bad');
       $('weekGrid').innerHTML = weekGridHTML(data, weekStart, { now: nowParts() });
+      $('weekGrid').querySelectorAll('td[data-slot]').forEach((td) => {
+        if (td.classList.contains('busy') || td.classList.contains('show') || td.classList.contains('clash')) return;
+        td.classList.add('addable');
+        td.title = 'Click to add a programme here';
+        td.onclick = () => {
+          const k = Number(td.dataset.slot), d = Number(td.dataset.day);
+          const start = SLOT_BOUNDS[k];
+          openQuickAdd(addDays(weekStart, d), start, Math.min(SLOT_BOUNDS[k + 1], start + 30));
+        };
+      });
+    }
+
+    // Quick add from the week view: a confirmed one-off programme or a weekly show.
+    function openQuickAdd(date = todayISO(), start = 600, end = 630) {
+      const f = $('quickForm');
+      f.reset();
+      $('quickError').hidden = true;
+      f.date.value = date;
+      f.start.value = mm(start);
+      f.end.value = mm(end);
+      f.studio.value = STUDIOS[0];
+      const dow = (new Date(`${date}T00:00:00Z`).getUTCDay() + 6) % 7 + 1;
+      f.querySelectorAll('input[name="qday"]').forEach((c) => (c.checked = Number(c.value) === dow));
+      quickKind();
+      $('quickAdd').showModal();
+      f.title.focus();
+    }
+
+    function quickKind() {
+      const weekly = $('quickForm').kind.value === 'weekly';
+      $('quickForm').querySelectorAll('[data-for]').forEach((el) => (el.hidden = el.dataset.for !== (weekly ? 'weekly' : 'once')));
+    }
+
+    async function saveQuickAdd(ev) {
+      if (ev.submitter?.value !== 'save') return;
+      ev.preventDefault();
+      const f = $('quickForm');
+      const fail = (msg) => { $('quickError').textContent = msg; $('quickError').hidden = false; };
+      if (!f.reportValidity()) return;
+      if (f.end.value <= f.start.value) return fail('End must be later than start.');
+      const title = f.title.value.trim(), notes = f.notes.value.trim();
+
+      if (f.kind.value === 'weekly') {
+        const days = [...f.querySelectorAll('input[name="qday"]:checked')].map((c) => Number(c.value));
+        if (!days.length) return fail('Tick at least one day.');
+        const { error } = await db.from('weekly_shows').insert({
+          name: title, days, start_time: f.start.value, end_time: f.end.value, studio: f.studio.value, notes,
+        });
+        if (error) return fail(`Could not add: ${errMsg(error)}`);
+        $('quickAdd').close();
+        toast(`${title} added as a weekly show (${daysLabel(days)})`, 'ok');
+      } else {
+        if (!f.date.value) return fail('Pick a date.');
+        const { data, error } = await db.from('bookings').insert({
+          booking_date: f.date.value, start_time: f.start.value, end_time: f.end.value, studio: f.studio.value,
+          title, requester_name: me?.email || 'Engineer', requester_email: me?.email,
+          status: 'Confirmed', notified_status: 'Confirmed',
+          notes: notes ? `Added from week view: ${notes}` : 'Added from week view',
+        }).select().single();
+        if (error) return fail(`Could not add: ${errMsg(error)}`);
+        $('quickAdd').close();
+        if (data.status !== 'Confirmed') toast(`${data.ref} saved as ${data.status} — ${lastNote(data.notes)}`, 'bad', 9000);
+        else toast(`${data.ref} — ${title} added`, 'ok');
+        load();
+      }
+      loadWeek();
     }
 
     async function loadShows() {

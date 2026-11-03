@@ -162,7 +162,7 @@ export function weekGridHTML(rows, weekStart, { now = null } = {}) {
       const c = cells[k][d];
       const fill = !c.items.length ? '' : c.clash ? 'clash' : c.booked ? 'busy' : 'show';
       const cls = [d === todayIdx ? 'today' : '', fill].join(' ').trim();
-      html += `<td class="${cls}"${span[k][d] > 1 ? ` rowspan="${span[k][d]}"` : ''}>${c.items.join('<div class="sep">— — —</div>')}</td>`;
+      html += `<td class="${cls}" data-day="${d}" data-slot="${k}"${span[k][d] > 1 ? ` rowspan="${span[k][d]}"` : ''}>${c.items.join('<div class="sep">— — —</div>')}</td>`;
     }
     html += '</tr>';
   }
