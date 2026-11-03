@@ -587,7 +587,7 @@
           @page { size: A4 landscape; margin: 10mm; }
         </style></head><body>
         <h1>ZTN Studio Schedule — week ${fmtDate(weekStart)} to ${fmtDate(d.end)}</h1>
-        <p class="meta">Exported ${esc(d.stamp)} (Harare time) by ${esc(d.by)} · ${d.items.filter((i) => i.type === 'Booking').length} booking(s), regular shows included · grid shows confirmed and completed bookings</p>
+        <p class="meta">Exported ${esc(d.stamp)} (Harare time) by ${esc(d.by)} · ${d.items.filter((i) => i.type === 'Booking').length} booking(s)</p>
         ${weekGridHTML(firm, weekStart)}
         <div class="page-break"></div>
         <h1>All bookings and regular shows this week</h1>
