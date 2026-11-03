@@ -308,22 +308,27 @@ end $$;
 
 -- Email hook: tells the "notify" edge function which booking changed, via pg_net.
 -- Only the id is sent; the function reads the booking itself, so a forged call
--- cannot invent content. URL comes from app_settings.notify_url (see README).
--- Never blocks a save.
+-- cannot invent content. URL comes from app_settings.notify_url and the
+-- project's public anon key from app_settings.notify_key, which passes the
+-- function's JWT check (see README). Never blocks a save.
 create or replace function public.bookings_notify() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare
   v_url text;
+  v_key text;
 begin
   if tg_op = 'UPDATE' and new.status is not distinct from old.status then
     return null;
   end if;
   begin
     select value into v_url from public.app_settings where key = 'notify_url';
+    select value into v_key from public.app_settings where key = 'notify_key';
     if coalesce(v_url, '') <> '' then
       perform net.http_post(
         url     := v_url,
-        headers := jsonb_build_object('Content-Type', 'application/json'),
+        headers := jsonb_build_object('Content-Type', 'application/json',
+                                      'Authorization', 'Bearer ' || coalesce(v_key, ''),
+                                      'apikey', coalesce(v_key, '')),
         body    := jsonb_build_object('id', new.id));
     end if;
   exception when others then

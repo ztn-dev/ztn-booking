@@ -60,12 +60,13 @@ The database enforces all of this, so nobody can get around it from the browser.
 ### 5. Email (Resend)
 1. Sign up at <https://resend.com>. Under **Domains**, add a sending subdomain such as `notify.ztn.co.zw` and add the DNS records it shows you. Until the domain is verified, Resend only delivers to your own address.
 2. Create an **API key** with *Sending access*.
-3. In Supabase, open **Edge Functions → Deploy a new function → Via editor**. Name it `notify` and paste [`supabase/functions/notify/index.ts`](supabase/functions/notify/index.ts). Deploy it, then in the function's settings turn **off** "Verify JWT".
+3. In Supabase, open **Edge Functions → Deploy a new function → Via editor**. Name it `notify` and paste [`supabase/functions/notify/index.ts`](supabase/functions/notify/index.ts). Deploy it and leave "Verify JWT" on: the database calls it with the public anon key (below).
 4. Under **Edge Functions → Secrets**, add `RESEND_API_KEY` with the Resend key. That's the only secret: the function reads each booking itself, and new-request emails go to everyone on the engineers list.
 5. Tell the database where the function is and who emails come from. Run this in the SQL Editor:
    ```sql
    insert into public.app_settings (key, value) values
      ('notify_url', 'https://<project-ref>.supabase.co/functions/v1/notify'),
+     ('notify_key', '<the anon public key, same as in assets/config.js>'),
      ('from_email', 'ZTN Studio <studio@notify.ztn.co.zw>'),
      ('site_url',   'https://<your-site>')
    on conflict (key) do update set value = excluded.value;
