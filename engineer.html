@@ -80,6 +80,7 @@
         <button role="tab" aria-selected="false" data-tab="week">Week view</button>
         <button role="tab" aria-selected="false" data-tab="shows">Weekly shows</button>
         <button role="tab" aria-selected="false" data-tab="archive">Archive</button>
+        <button role="tab" aria-selected="false" data-tab="audit">Audit trail</button>
       </div>
       <div id="tab-table" class="table-wrap"></div>
       <div id="tab-week" hidden>
@@ -95,6 +96,21 @@
         </div>
         <div class="legend"><span><i class="l-show"></i>Regular show</span><span><i class="l-busy"></i>Confirmed / completed booking</span><span><i class="l-clash"></i>Same studio used twice</span><span>Tip: click an empty slot to add a programme there.</span></div>
         <div class="table-wrap" id="weekGrid"></div>
+      </div>
+      <div id="tab-audit" hidden>
+        <p class="count" style="margin:0 0 10px">Who did what: every change to bookings, weekly shows, engineers, settings and archives, plus sign-ins, downloads and prints. Entries are written by the system and cannot be edited or deleted.</p>
+        <div class="toolbar">
+          <label class="field"><span>From</span><input type="date" id="auFrom"></label>
+          <label class="field"><span>To</span><input type="date" id="auTo"></label>
+          <label class="field"><span>Who</span><select id="auWho"><option value="">Everyone</option></select></label>
+          <label class="field"><span>Type</span><select id="auType"><option value="">Everything</option><option>Booking</option><option>Weekly show</option><option>Engineer</option><option>Setting</option><option>Archive</option><option>Activity</option></select></label>
+          <label class="field grow"><span>Search</span><input type="search" id="auText" placeholder="Booking ref, programme, action…"></label>
+        </div>
+        <div class="actions" style="margin-bottom:10px">
+          <button class="btn" id="auCsvBtn">Download (Excel/CSV)</button>
+          <span class="count" id="auCount"></span>
+        </div>
+        <div class="table-wrap" id="auditTable"></div>
       </div>
       <div id="tab-archive" hidden>
         <section class="card" style="margin-bottom:16px">
@@ -255,6 +271,8 @@
     let shows = [];
     let editingShow = null;
     let me = null; // signed-in engineer's user record
+    // Record activity in the audit trail. Never holds up what the engineer is doing.
+    const logEvent = (action, detail) => db.rpc('audit_event', { p_action: action, p_detail: detail ?? null }).then(() => {}, () => {});
     // Arrived from an invite or password-reset email: ask for a password first.
     let needPassword = AUTH_LINK_TYPE === 'invite' || AUTH_LINK_TYPE === 'recovery';
 
@@ -301,6 +319,7 @@
         if (res.error) { $('codeError').textContent = 'That code is wrong or has expired. Ask for a new one with "Forgot password?" above.'; $('codeError').hidden = false; return; }
         needPassword = true;
         f.reset();
+        logEvent('Signed in', 'With an email code');
         route(res.data.session);
       });
       $('setpwForm').addEventListener('submit', async (ev) => {
@@ -312,6 +331,7 @@
         if (error) { $('setpwError').textContent = errMsg(error); $('setpwError').hidden = false; return; }
         needPassword = false;
         f.reset();
+        logEvent('Password set');
         toast('Password saved. Use it to sign in from now on.', 'ok');
         const { data } = await db.auth.getSession();
         route(data.session);
@@ -322,9 +342,10 @@
         const fd = new FormData(ev.target);
         $('loginError').hidden = true;
         const { error } = await db.auth.signInWithPassword({ email: fd.get('email'), password: fd.get('password') });
-        if (error) { $('loginError').textContent = errMsg(error); $('loginError').hidden = false; }
+        if (error) { $('loginError').textContent = errMsg(error); $('loginError').hidden = false; return; }
+        logEvent('Signed in');
       });
-      $('signOut').addEventListener('click', async (ev) => { ev.preventDefault(); await db.auth.signOut(); });
+      $('signOut').addEventListener('click', async (ev) => { ev.preventDefault(); await logEvent('Signed out'); await db.auth.signOut(); });
 
       for (const id of ['from', 'to']) $(id).addEventListener('change', load);
       for (const id of ['fStatus', 'fStudio', 'fText']) $(id).addEventListener('input', render);
@@ -341,6 +362,11 @@
       $('weekCsvBtn').onclick = () => liveWeek().then(downloadWeekCsv).catch((e) => toast(`Could not build the week: ${e.message}`, 'bad'));
       $('weekPrintBtn').onclick = () => { const w = window.open('', '_blank'); liveWeek().then((d) => printWeek(d, w)).catch((e) => { w?.close(); toast(`Could not build the week: ${e.message}`, 'bad'); }); };
       $('archiveNowBtn').onclick = archiveNow;
+      $('auFrom').value = addDays(todayISO(), -7);
+      $('auTo').value = todayISO();
+      for (const id of ['auFrom', 'auTo']) $(id).addEventListener('change', loadAudit);
+      for (const id of ['auWho', 'auType', 'auText']) $(id).addEventListener('input', renderAudit);
+      $('auCsvBtn').onclick = downloadAudit;
       $('quickAddBtn').onclick = () => openQuickAdd(weekStart <= todayISO() && todayISO() <= addDays(weekStart, 6) ? todayISO() : weekStart);
       $('prevWeek').onclick = () => { weekStart = addDays(weekStart, -7); loadWeek(); };
       $('nextWeek').onclick = () => { weekStart = addDays(weekStart, 7); loadWeek(); };
@@ -560,6 +586,7 @@
       const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `ztn-schedule-${todayISO()}.csv` });
       a.click();
       URL.revokeObjectURL(a.href);
+      logEvent('Downloaded', a.download);
     }
 
     function showTab(name) {
@@ -568,9 +595,11 @@
       $('tab-week').hidden = name !== 'week';
       $('tab-shows').hidden = name !== 'shows';
       $('tab-archive').hidden = name !== 'archive';
+      $('tab-audit').hidden = name !== 'audit';
       if (name === 'week') loadWeek();
       if (name === 'shows') loadShows();
       if (name === 'archive') loadArchive();
+      if (name === 'audit') loadAudit();
     }
 
     // ---- Weekly record: CSV / print for the week shown, or for a saved snapshot ----
@@ -634,11 +663,13 @@
       a.click();
       URL.revokeObjectURL(a.href);
       toast(`Schedule ${fmtDate(d.ws)} – ${fmtDate(d.end)} downloaded`, 'ok');
+      logEvent('Downloaded', `${d.file}.csv`);
     }
 
     // w: a window opened straight from the click (browsers block pop-ups opened later).
     function printWeek(d, w) {
       if (!w) return toast('Allow pop-ups for this site to print the week.', 'bad');
+      logEvent('Printed', d.file);
       const firm = d.items.filter((i) => i.type !== 'Booking' || ['Confirmed', 'Completed'].includes(i.status))
         .map((i) => ({ kind: i.type === 'Booking' ? 'booking' : 'show', ref: i.b?.ref, booking_date: i.date, start_time: i.start, end_time: i.end, studio: i.studio, title: i.title, status: i.type === 'Booking' ? i.status : 'Show' }));
       const rowsHtml = d.items.map((i) => `<tr class="${i.type === 'Booking' ? '' : 'reg'}">
@@ -693,6 +724,74 @@
       };
       $('archiveTable').querySelectorAll('[data-arc-csv]').forEach((b) => (b.onclick = () => fetchRow(b.dataset.arcCsv).then(downloadWeekCsv).catch((e) => toast(e.message, 'bad'))));
       $('archiveTable').querySelectorAll('[data-arc-print]').forEach((b) => (b.onclick = () => { const w = window.open('', '_blank'); fetchRow(b.dataset.arcPrint).then((d) => printWeek(d, w)).catch((e) => { w?.close(); toast(e.message, 'bad'); }); }));
+    }
+
+    // ---- Audit trail tab -----------------------------------------------------
+    let audit = [];
+    const AUDIT_LIMIT = 2000;
+
+    // Plain-English description of one entry's changes.
+    function auditDetail(r) {
+      const parts = r.summary ? [r.summary] : [];
+      const show = (v) => (v === null || v === undefined || v === '' ? '(blank)' : Array.isArray(v) ? v.join(', ') : String(v));
+      if (r.changes && r.action !== 'Deleted') {
+        for (const [k, c] of Object.entries(r.changes)) {
+          if (k === 'status') continue;
+          parts.push(`${k.replace(/_/g, ' ')}: ${show(c.from)} → ${show(c.to)}`);
+        }
+      }
+      if (r.action === 'Deleted' && r.target_type === 'Booking') {
+        const c = r.changes || {};
+        parts.push(`Was ${c.status}, ${c.booking_date} ${hm(c.start_time)}–${hm(c.end_time)}, ${c.studio}, requested by ${c.requester_name}`);
+      }
+      return parts.join('; ');
+    }
+
+    async function loadAudit() {
+      const from = $('auFrom').value, to = $('auTo').value;
+      let q = db.from('audit_log').select('*').order('id', { ascending: false }).limit(AUDIT_LIMIT);
+      if (from) q = q.gte('at', `${from}T00:00:00+02:00`);
+      if (to) q = q.lte('at', `${to}T23:59:59+02:00`);
+      const { data, error } = await q;
+      if (error) return toast(`Could not load the audit trail: ${errMsg(error)}`, 'bad');
+      audit = data;
+      const who = $('auWho').value;
+      const names = [...new Set(audit.map((r) => r.actor))].sort();
+      $('auWho').innerHTML = '<option value="">Everyone</option>' + names.map((n) => `<option>${esc(n)}</option>`).join('');
+      if (names.includes(who)) $('auWho').value = who;
+      renderAudit();
+    }
+
+    function auditFiltered() {
+      const who = $('auWho').value, type = $('auType').value, text = $('auText').value.trim().toLowerCase();
+      return audit.filter((r) => (!who || r.actor === who) && (!type || r.target_type === type) &&
+        (!text || [r.actor, r.action, r.target_type, r.target, auditDetail(r)].join(' ').toLowerCase().includes(text)));
+    }
+
+    function renderAudit() {
+      const list = auditFiltered();
+      $('auCount').textContent = `${list.length} of ${audit.length} entries${audit.length === AUDIT_LIMIT ? ` (newest ${AUDIT_LIMIT}; narrow the dates to see older ones)` : ''}`;
+      $('auditTable').innerHTML = !list.length ? '<div class="empty">Nothing recorded for these filters.</div>'
+        : `<table class="sched"><thead><tr><th>When</th><th>Who</th><th>Action</th><th>Type</th><th>What</th><th>Details</th></tr></thead><tbody>
+          ${list.map((r) => `<tr><td class="nowrap">${harare(r.at, { dateStyle: 'medium', timeStyle: 'medium' })}</td><td>${esc(r.actor)}</td>
+            <td class="nowrap"><b>${esc(r.action)}</b></td><td class="nowrap">${esc(r.target_type)}</td><td>${esc(r.target)}</td><td class="notes">${esc(auditDetail(r))}</td></tr>`).join('')}
+          </tbody></table>`;
+    }
+
+    function downloadAudit() {
+      const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const lines = [
+        [`ZTN Studio audit trail — ${$('auFrom').value} to ${$('auTo').value}`],
+        [`Exported ${harare(Date.now(), { dateStyle: 'medium', timeStyle: 'short' })} (Harare time) by ${me?.email || ''}`],
+        [],
+        ['When (Harare)', 'Who', 'Action', 'Type', 'What', 'Details'],
+        ...auditFiltered().map((r) => [harare(r.at), r.actor, r.action, r.target_type, r.target, auditDetail(r)]),
+      ];
+      const blob = new Blob(['﻿' + lines.map((r) => r.map(cell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+      const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `ztn-audit-${$('auFrom').value}-to-${$('auTo').value}.csv` });
+      a.click();
+      URL.revokeObjectURL(a.href);
+      logEvent('Downloaded', a.download);
     }
 
     async function archiveNow() {

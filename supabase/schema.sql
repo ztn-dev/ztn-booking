@@ -387,6 +387,7 @@ declare
   v_today  date := (now() at time zone public.ztn_tz())::date;
   v_recent int;
 begin
+  perform set_config('ztn.actor', 'Public booking form', true);
   if coalesce(trim(p->>'requester_name'), '') = '' then raise exception 'Requester name is required'; end if;
   if coalesce(trim(p->>'requester_email'), '') = '' then raise exception 'Requester email is required'; end if;
   if coalesce(trim(p->>'title'), '') = '' then raise exception 'Programme / production title is required'; end if;
@@ -511,6 +512,7 @@ language plpgsql security definer set search_path = public as $$
 declare
   n int;
 begin
+  perform set_config('ztn.actor', 'Automatic (hourly auto-complete)', true);
   update public.bookings
      set status = 'Completed',
          notes = public.stamp_note(notes, 'Auto-completed')
@@ -552,6 +554,7 @@ declare
   v_data jsonb;
   r public.weekly_archives;
 begin
+  perform set_config('ztn.actor', 'Automatic (weekly archive)', true);
   select coalesce(jsonb_agg(jsonb_build_object(
            'date', d::date, 'start', to_char(s.start_time, 'HH24:MI'), 'end', to_char(s.end_time, 'HH24:MI'),
            'studio', s.studio, 'title', s.name) order by d, s.start_time, s.name), '[]')
@@ -598,6 +601,141 @@ begin
   return public._archive_week(p_start, coalesce(v_email, 'engineer'));
 end $$;
 
+-- -------------------------------------------------------------- audit trail --
+-- Who did what. Database triggers record every change to bookings, weekly shows,
+-- engineers, settings and archives, so nothing can skip the log. The page adds
+-- activity that changes no data (sign-ins, downloads) through audit_event().
+-- Engineers can read it; nobody can edit or delete it.
+create table if not exists public.audit_log (
+  id          bigint generated always as identity primary key,
+  at          timestamptz not null default now(),
+  actor_id    uuid,
+  actor       text not null,
+  action      text not null,
+  target_type text not null,
+  target      text,
+  summary     text,
+  changes     jsonb
+);
+create index if not exists audit_log_at_idx on public.audit_log (at desc);
+
+create or replace function public.audit_row() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  v_old     jsonb := case when tg_op <> 'INSERT' then to_jsonb(old) end;
+  v_new     jsonb := case when tg_op <> 'DELETE' then to_jsonb(new) end;
+  v_row     jsonb := coalesce(v_new, v_old);
+  v_uid     uuid  := auth.uid();
+  v_actor   text;
+  v_action  text  := case tg_op when 'INSERT' then 'Created' when 'UPDATE' then 'Updated' else 'Deleted' end;
+  v_type    text;
+  v_target  text;
+  v_summary text;
+  v_changes jsonb;
+begin
+  if tg_op = 'UPDATE' then
+    select jsonb_object_agg(e.key, jsonb_build_object('from', v_old -> e.key, 'to', e.value))
+      into v_changes
+      from jsonb_each(v_new) e
+     where e.key not in ('updated_at', 'notified_status', 'approved_at', 'approved_by', 'data', 'sha256', 'archived_at')
+       and e.value is distinct from v_old -> e.key;
+    -- Bookkeeping only (e.g. the email function marking a status as sent): nothing to record.
+    if v_changes is null and tg_table_name <> 'weekly_archives' then
+      return null;
+    end if;
+  elsif tg_op = 'DELETE' then
+    v_changes := v_old - 'data';   -- keep what was deleted
+  end if;
+
+  if v_uid is not null then
+    select email into v_actor from auth.users where id = v_uid;
+  end if;
+  v_actor := coalesce(v_actor, nullif(current_setting('ztn.actor', true), ''), 'System / database admin');
+
+  case tg_table_name
+    when 'bookings' then
+      v_type := 'Booking';
+      v_target := (v_row ->> 'ref') || ' ' || chr(8212) || ' ' || (v_row ->> 'title');
+      if tg_op = 'INSERT' then
+        v_summary := (v_row ->> 'status') || ', ' || (v_row ->> 'booking_date') || ' ' || left(v_row ->> 'start_time', 5)
+                     || chr(8211) || left(v_row ->> 'end_time', 5) || ', ' || (v_row ->> 'studio');
+      elsif tg_op = 'UPDATE' and v_changes ? 'status' then
+        v_action := 'Status changed';
+        v_summary := (v_old ->> 'status') || ' ' || chr(8594) || ' ' || (v_new ->> 'status');
+      end if;
+      if pg_trigger_depth() > 1 then
+        v_summary := concat_ws(' ', v_summary, '(automatic re-check)');
+      end if;
+    when 'weekly_shows' then
+      v_type := 'Weekly show';
+      v_target := v_row ->> 'name';
+    when 'engineers' then
+      v_type := 'Engineer';
+      select email into v_target from auth.users where id = (v_row ->> 'user_id')::uuid;
+      v_target := coalesce(v_target, v_row ->> 'full_name', v_row ->> 'user_id');
+      v_action := case tg_op when 'INSERT' then 'Added' when 'DELETE' then 'Removed' else v_action end;
+    when 'app_settings' then
+      v_type := 'Setting';
+      v_target := v_row ->> 'key';
+      v_changes := null;           -- values can be private: record only that it changed
+    when 'weekly_archives' then
+      v_type := 'Archive';
+      v_target := 'Week of ' || (v_row ->> 'week_start');
+      v_action := 'Snapshot saved';
+      v_summary := (v_row ->> 'booking_count') || ' booking(s), ' || (v_row ->> 'show_count') || ' show slot(s)';
+      v_changes := null;
+  end case;
+
+  insert into public.audit_log (actor_id, actor, action, target_type, target, summary, changes)
+  values (v_uid, v_actor, v_action, v_type, v_target, v_summary, v_changes);
+  return null;
+end $$;
+
+drop trigger if exists bookings_audit on public.bookings;
+create trigger bookings_audit after insert or update or delete on public.bookings
+  for each row execute function public.audit_row();
+drop trigger if exists weekly_shows_audit on public.weekly_shows;
+create trigger weekly_shows_audit after insert or update or delete on public.weekly_shows
+  for each row execute function public.audit_row();
+drop trigger if exists engineers_audit on public.engineers;
+create trigger engineers_audit after insert or update or delete on public.engineers
+  for each row execute function public.audit_row();
+drop trigger if exists app_settings_audit on public.app_settings;
+create trigger app_settings_audit after insert or update or delete on public.app_settings
+  for each row execute function public.audit_row();
+drop trigger if exists weekly_archives_audit on public.weekly_archives;
+create trigger weekly_archives_audit after insert or update on public.weekly_archives
+  for each row execute function public.audit_row();
+
+-- The trail itself cannot be rewritten, not even from the SQL Editor.
+create or replace function public.audit_log_locked() returns trigger
+language plpgsql as $$
+begin
+  raise exception 'The audit trail cannot be changed or deleted';
+end $$;
+
+drop trigger if exists audit_log_no_change on public.audit_log;
+create trigger audit_log_no_change before update or delete on public.audit_log
+  for each row execute function public.audit_log_locked();
+drop trigger if exists audit_log_no_truncate on public.audit_log;
+create trigger audit_log_no_truncate before truncate on public.audit_log
+  for each statement execute function public.audit_log_locked();
+
+-- Activity that changes no data, reported by the engineer page.
+create or replace function public.audit_event(p_action text, p_detail text default null) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  v_email text;
+begin
+  if not public.is_engineer() then raise exception 'Engineers only'; end if;
+  if p_action not in ('Signed in', 'Signed out', 'Password set', 'Downloaded', 'Printed') then
+    raise exception 'Unknown activity';
+  end if;
+  select email into v_email from auth.users where id = auth.uid();
+  insert into public.audit_log (actor_id, actor, action, target_type, target)
+  values (auth.uid(), coalesce(v_email, 'engineer'), p_action, 'Activity', left(p_detail, 300));
+end $$;
+
 -- ------------------------------------------------------- row level security --
 alter table public.bookings enable row level security;
 alter table public.engineers enable row level security;
@@ -617,6 +755,12 @@ alter table public.weekly_shows enable row level security;
 drop policy if exists "engineers manage shows" on public.weekly_shows;
 create policy "engineers manage shows" on public.weekly_shows for all to authenticated
   using (public.is_engineer()) with check (public.is_engineer());
+
+-- Audit trail: engineers can read; only the database writes to it.
+alter table public.audit_log enable row level security;
+drop policy if exists "engineers read audit log" on public.audit_log;
+create policy "engineers read audit log" on public.audit_log for select to authenticated using (public.is_engineer());
+revoke insert, update, delete, truncate on public.audit_log from anon, authenticated;
 
 -- Archives: engineers can read; nobody can change or delete them from the site.
 alter table public.weekly_archives enable row level security;
@@ -642,6 +786,8 @@ revoke all on function public.bookings_notify() from public, anon, authenticated
 revoke all on function public.engineer_emails() from public, anon, authenticated;
 revoke all on function public.schedule_changed() from public, anon, authenticated;
 revoke all on function public._archive_week(date, text) from public, anon, authenticated;
+revoke all on function public.audit_row() from public, anon, authenticated;
+revoke all on function public.audit_event(text, text) from public, anon;
 revoke all on function public.archive_week(date) from public, anon;
 do $$
 begin
@@ -657,6 +803,7 @@ grant execute on function public.is_engineer() to anon, authenticated;
 grant execute on function public.recheck_all_conflicts() to authenticated;
 grant execute on function public.close_completed() to authenticated;
 grant execute on function public.archive_week(date) to authenticated;
+grant execute on function public.audit_event(text, text) to authenticated;
 
 -- Live updates in the engineer console
 do $$
