@@ -107,6 +107,7 @@ When `SMTP_PASSWORD` is set, the function sends through SMTP (port 465); otherwi
 - **Weekly archive:** in **Week view**, **Download week (Excel/CSV)** saves every regular show and every booking that week (all statuses, requester, submitted and approved times, notes), stamped with the export time and engineer. **Print / Save as PDF** gives the same week as a printable grid plus list. Keep one per week as a record of what was booked.
 - **Automatic archive:** every Sunday at 23:55 (Harare time) the database saves a snapshot of the week: regular shows and every booking with full details and status. Snapshots are small (a few KB each), can't be edited or deleted from the site, and carry a SHA-256 fingerprint. See and download them in the engineer page's **Archive** tab, or save the current week straight away from there.
 - **Audit trail:** the engineer page's **Audit trail** tab shows who did what and when: every change to bookings, weekly shows, engineers, settings and archives (with old and new values), plus sign-ins, sign-outs, password changes, downloads and prints. It's written by the database, so nothing can skip it, and it can't be edited or deleted.
+- **Updates:** an open engineer page checks for a new release every 5 minutes and whenever you return to its tab. It refreshes itself once no box is open and nothing is being typed, so unfinished work isn't lost.
 - **Excel:** **Export CSV** downloads the schedule with the same columns as the workbook's Studio Schedule sheet.
 
 ## Costs and limits

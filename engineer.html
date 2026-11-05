@@ -260,7 +260,7 @@
     import {
       db, isConfigured, showNotConfigured, STATUSES, STUDIOS, PRIORITIES, LIVE_RECORDED,
       todayISO, addDays, mondayOf, fmtDate, dayName, hm, esc, statusPill, errMsg, toast, weekGridHTML, nowParts,
-      DAY_SHORT, daysLabel, AUTH_LINK_TYPE, SLOT_BOUNDS, mm,
+      DAY_SHORT, daysLabel, AUTH_LINK_TYPE, SLOT_BOUNDS, mm, watchForUpdate,
     } from './assets/app.js';
 
     const $ = (id) => document.getElementById(id);
@@ -292,6 +292,8 @@
       f.live_recorded.innerHTML = opts(LIVE_RECORDED, true);
       $('from').value = addDays(mondayOf(todayISO()), -7);
       $('to').value = addDays(mondayOf(todayISO()), 55);
+
+      watchForUpdate({ isBusy: () => needPassword });
 
       db.auth.onAuthStateChange((evt, session) => {
         if (evt === 'PASSWORD_RECOVERY') needPassword = true;

@@ -82,6 +82,47 @@ export function showNotConfigured(container) {
     Add your Supabase project URL and anon key to <code>assets/config.js</code> (see README).</div>`;
 }
 
+// Keeps a page that stays open up to date. Every few minutes it compares the files
+// this page is running with the published ones. After a release it reloads as soon as
+// nobody is mid-task: no box open, nothing being typed, and isBusy() false.
+export function watchForUpdate({ every = 300000, isBusy = () => false } = {}) {
+  const files = [location.href.split(/[?#]/)[0], import.meta.url,
+    new URL('./config.js', import.meta.url).href, new URL('./style.css', import.meta.url).href];
+  const read = (cache) => Promise.all(files.map((u) => fetch(u, { cache })
+    .then((r) => (r.ok ? r.text() : Promise.reject(new Error(r.status)))))).then((t) => t.join(''));
+  const busy = () => isBusy() || !!document.querySelector('dialog[open]')
+    || !!document.activeElement?.matches('input, textarea, select');
+
+  // force-cache gives the copies this page loaded; reload fetches the published
+  // ones and stores them, so the reload below can't pick up old files.
+  read('force-cache').then((running) => {
+    let timer;
+    const check = () => read('reload').then((latest) => {
+      if (latest === running) return;
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onShow);
+      let idle = 0; // two quiet checks in a row, so a save that just started can finish
+      setInterval(() => {
+        idle = busy() ? 0 : idle + 1;
+        if (idle < 2) return;
+        try { sessionStorage.setItem('ztn-updated', '1'); } catch { /* the note is optional */ }
+        location.reload();
+      }, 10000);
+    }, () => {}); // offline or a failed fetch: try again next time
+    const onShow = () => { if (!document.hidden) check(); };
+    timer = setInterval(check, every);
+    document.addEventListener('visibilitychange', onShow);
+    check();
+  }, () => {});
+
+  try {
+    if (sessionStorage.getItem('ztn-updated')) {
+      sessionStorage.removeItem('ztn-updated');
+      toast('Page updated to the latest version.', 'ok');
+    }
+  } catch { /* the note is optional */ }
+}
+
 let toastHost;
 export function toast(msg, kind = 'info', ms = 4500) {
   if (!toastHost) {
