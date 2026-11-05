@@ -46,7 +46,6 @@ type Booking = {
 type Message = { to: string[]; subject: string; text: string };
 
 const env = (k: string) => Deno.env.get(k) ?? "";
-const DASH = "—";
 const API = `${env("SUPABASE_URL")}/rest/v1`;
 const DB_HEADERS = {
   apikey: env("SUPABASE_SERVICE_ROLE_KEY"),
@@ -63,23 +62,42 @@ function longDate(iso: string): string {
   });
 }
 
-function summary(b: Booking): string {
+// Booking facts as "Label: value" lines. Engineers also get the working details
+// and internal notes; requesters only get what concerns them.
+function details(b: Booking, forEngineer: boolean): string {
+  const person = [...new Set([b.requester_name, b.department, b.requester_email, b.contact_number].filter(Boolean))];
   const lines = [
     ["Reference", b.ref],
-    ["Date / time", `${longDate(b.booking_date)}, ${hm(b.start_time)} - ${hm(b.end_time)}`],
-    ["Setup access", hm(b.setup_time)],
-    ["Studio", b.studio],
     ["Programme", b.title],
-    ["Requester", [b.requester_name, b.department, b.requester_email, b.contact_number].filter(Boolean).join(` ${DASH} `)],
-    ["Producer", b.producer ?? ""],
-    ["Live/Rec", b.live_recorded ?? ""],
-    ["Crew", b.crew ?? ""],
-    ["Priority", b.priority ?? ""],
-    ["Status", b.status],
-    ["Notes", b.notes],
+    ["Date", longDate(b.booking_date)],
+    ["Time", `${hm(b.start_time)} to ${hm(b.end_time)}`],
+    ["Setup access from", hm(b.setup_time)],
+    ["Studio", b.studio],
+    ...(forEngineer ? [
+      ["Requested by", person.join(", ")],
+      ["Producer", b.producer ?? ""],
+      ["Live or recorded", b.live_recorded ?? ""],
+      ["Crew", b.crew ?? ""],
+      ["Priority", b.priority ?? ""],
+      ["Status", b.status],
+      ["Notes", b.notes],
+    ] : []),
   ];
-  return lines.filter(([, v]) => v).map(([k, v]) => `${(k + ":").padEnd(14)}${v}`).join("\n");
+  return lines.filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join("\n");
 }
+
+// The reason an engineer typed when declining or cancelling.
+function reasonFrom(notes: string): string {
+  const found = notes.split("\n").map((l) => l.match(/^(?:\[[^\]]*\]\s*)?Reason:\s*(.+)$/)?.[1]).filter(Boolean);
+  return found[found.length - 1] ?? "";
+}
+
+// Hello line; quick-added bookings use an email address as the name.
+const hello = (b: Booking) => (b.requester_name && !b.requester_name.includes("@") ? `Hello ${b.requester_name},` : "Hello,");
+
+// Subjects stay plain ASCII: the SMTP library wraps encoded subjects badly, which
+// ends the headers early and shows the raw email to the reader.
+const plainSubject = (s: string) => s.replace(/[\u2013\u2014]/g, "-").replace(/[^\x20-\x7E]/g, "").replace(/\s+/g, " ").trim();
 
 async function db(path: string, init: RequestInit = {}) {
   const res = await fetch(`${API}/${path}`, { ...init, headers: { ...DB_HEADERS, ...(init.headers ?? {}) } });
@@ -88,47 +106,42 @@ async function db(path: string, init: RequestInit = {}) {
 }
 
 function buildMessage(b: Booking, isNew: boolean, engineers: string[], site: string): Message | null {
-  const tag = `${DASH} ${b.ref} ${DASH} ${b.title}`;
-  const sign = "\n\nZTN Studio / Technical Department";
+  const tag = `${b.ref} - ${b.title}`;
+  const sign = "\n\nIf you have any questions, please contact the studio team.\n\nRegards,\nZTN Studio / Technical Department";
+  const toRequester = (subject: string, opening: string, extra = "") => ({
+    to: [b.requester_email],
+    subject,
+    text: `${hello(b)}\n\n${opening}\n\n${extra}Booking details\n${details(b, false)}${sign}`,
+  });
 
   if (isNew) {
     if (!engineers.length) return null;
     const conflict = b.status === "Conflict";
     const show = /Overlaps regular show/.test(b.notes)
-      ? "NOTE: this time overlaps a regular weekly show. Approve or decline at your discretion.\n\n"
+      ? "This time overlaps a regular weekly show. Approve or decline it at your discretion.\n\n"
       : "";
     return {
       to: engineers,
-      subject: conflict ? `[ZTN Studio] CONFLICT ${tag}` : `[ZTN Studio] New booking request ${tag}`,
-      text: (conflict
-        ? "A new booking request CLASHES with an existing booking.\n\n"
+      subject: conflict ? `[ZTN Studio] CONFLICT: ${tag}` : `[ZTN Studio] New booking request: ${tag}`,
+      text: "Hello,\n\n" + (conflict
+        ? "A new booking request clashes with an existing booking.\n\n"
         : "A new studio booking request has been submitted.\n\n") + show +
-        summary(b) + (site ? `\n\nReview: ${site}/engineer.html` : ""),
+        `Booking details\n${details(b, true)}` + (site ? `\n\nReview it here: ${site}/engineer.html` : ""),
     };
   }
 
-  const to = [b.requester_email];
   switch (b.status) {
     case "Confirmed":
-      return {
-        to,
-        subject: `[ZTN Studio] Booking confirmed ${tag}`,
-        text: "Your studio booking has been CONFIRMED.\n\n" + summary(b) + sign,
-      };
+      return toRequester(`[ZTN Studio] Booking confirmed: ${tag}`, "Your studio booking has been confirmed.");
     case "Declined":
-    case "Cancelled":
-      return {
-        to,
-        subject: `[ZTN Studio] Booking ${b.status.toLowerCase()} ${tag}`,
-        text: `Your studio booking has been ${b.status.toUpperCase()}.\n\nReason / notes:\n${b.notes || "(none given)"}\n\n` +
-          summary(b) + sign,
-      };
+    case "Cancelled": {
+      const word = b.status.toLowerCase();
+      const reason = reasonFrom(b.notes);
+      return toRequester(`[ZTN Studio] Booking ${word}: ${tag}`, `Your studio booking has been ${word}.`,
+        reason ? `Reason: ${reason}\n\n` : "");
+    }
     case "Rescheduled":
-      return {
-        to,
-        subject: `[ZTN Studio] Booking rescheduled ${tag}`,
-        text: "Your studio booking has been rescheduled. Current details:\n\n" + summary(b) + sign,
-      };
+      return toRequester(`[ZTN Studio] Booking rescheduled: ${tag}`, "Your studio booking has been rescheduled. The current details are below.");
     default:
       return null;
   }
@@ -178,7 +191,7 @@ Deno.serve(async (req) => {
         await client.send({
           from: settings.from_email || settings.smtp_user,
           to: msg.to,
-          subject: msg.subject,
+          subject: plainSubject(msg.subject),
           content: msg.text,
         });
       } finally {
@@ -194,7 +207,7 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         from: settings.from_email || "ZTN Studio <onboarding@resend.dev>",
         to: msg.to,
-        subject: msg.subject,
+        subject: plainSubject(msg.subject),
         text: msg.text,
       }),
     });
