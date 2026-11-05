@@ -65,7 +65,7 @@ create table if not exists public.bookings (
   end_time        time not null,
   setup_time      time,
   studio          text not null
-                  check (studio in ('Studio 1','Studio 2','Audio Studio','Other')),
+                  check (studio in ('Studio 1','Studio 2','Audio Studio','MCR','Other')),
   title           text not null check (length(title) between 1 and 200),
   requester_name  text not null check (length(requester_name) between 1 and 120),
   department      text check (length(department) <= 120),
@@ -102,7 +102,7 @@ create table if not exists public.weekly_shows (
   start_time    time not null,
   end_time      time not null,
   studio        text not null default 'Studio 1'
-                check (studio in ('Studio 1','Studio 2','Audio Studio','Other')),
+                check (studio in ('Studio 1','Studio 2','Audio Studio','MCR','Other')),
   live_recorded text check (live_recorded in ('Live','Recorded','Live-to-tape')),
   presenter     text check (length(presenter) <= 200),
   active_from   date,
@@ -112,6 +112,14 @@ create table if not exists public.weekly_shows (
   check (end_time > start_time),
   check (active_to is null or active_from is null or active_to >= active_from)
 );
+
+-- Keep the studio list current on tables that already exist.
+alter table public.bookings drop constraint if exists bookings_studio_check;
+alter table public.bookings add constraint bookings_studio_check
+  check (studio in ('Studio 1','Studio 2','Audio Studio','MCR','Other'));
+alter table public.weekly_shows drop constraint if exists weekly_shows_studio_check;
+alter table public.weekly_shows add constraint weekly_shows_studio_check
+  check (studio in ('Studio 1','Studio 2','Audio Studio','MCR','Other'));
 
 -- Your current line-up (from the workbook). Only inserted into an empty table.
 insert into public.weekly_shows (name, days, start_time, end_time)

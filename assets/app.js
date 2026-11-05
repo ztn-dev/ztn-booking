@@ -5,7 +5,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, TIMEZONE } from './config.js';
 export const STATUSES = ['Requested', 'Pending Approval', 'Conflict', 'Confirmed',
   'Declined', 'Rescheduled', 'Cancelled', 'Completed'];
 export const FIRM_STATUSES = ['Confirmed', 'Completed'];
-export const STUDIOS = ['Studio 1', 'Studio 2', 'Audio Studio', 'Other'];
+export const STUDIOS = ['Studio 1', 'Studio 2', 'Audio Studio', 'MCR', 'Other'];
 export const PRIORITIES = ['High', 'Urgent'];
 export const LIVE_RECORDED = ['Live', 'Recorded', 'Live-to-tape'];
 // Minutes since midnight, matching the workbook: 06:00-08:00, half-hours to 19:30, then 19:30-22:00.
