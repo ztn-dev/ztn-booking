@@ -170,6 +170,8 @@
       setTimeout(() => location.reload(), 6 * 3600 * 1000);
       let rt;
       addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(fitGrid, 150); });
+      // The header can grow after the grid is drawn, leaving less room for it.
+      if (window.ResizeObserver) new ResizeObserver(() => fitGrid()).observe($('grid'));
     }
   </script>
 </body>
