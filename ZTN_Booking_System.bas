@@ -63,7 +63,7 @@ Public Function DisplayStatuses() As Variant
 End Function
 
 Public Function StudioList() As Variant
-    StudioList = Array("Studio 1", "Studio 2", "Audio Studio", "Other")
+    StudioList = Array("Studio 1", "Studio 2", "Audio Studio", "MCR", "Other")
 End Function
 
 Public Function PriorityList() As Variant
