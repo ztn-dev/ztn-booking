@@ -165,12 +165,10 @@ table.week td.clash { background: var(--clash); }
 table.week thead th.today { background: var(--navy); box-shadow: inset 0 -4px 0 #f5c542; }
 table.week td.today { box-shadow: inset 3px 0 0 #f5c542, inset -3px 0 0 #f5c542; }
 table.week tr.now th.slot { background: #f5c542; color: #1b2333; }
-.bk-ref { font-weight: 700; }
-.bk-title { margin: 1px 0; text-transform: uppercase; }
+.bk-title { margin: 1px 0; font-weight: 700; text-transform: uppercase; }
 .bk-time { color: var(--muted); font-variant-numeric: tabular-nums; }
 .bk.cont { color: var(--muted); font-style: italic; }
 .bk.done { opacity: .65; }
-.bk.show .bk-title { font-weight: 700; }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .85rem; color: var(--muted); margin: 0 0 10px; }
 .legend i { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: -2px; margin-right: 6px; border: 1px solid var(--border); }
 .legend .l-show { background: var(--show); } .legend .l-busy { background: var(--busy); } .legend .l-clash { background: var(--clash); }
@@ -191,7 +189,6 @@ body.monitor table.week td { font-size: var(--mon-font); height: auto; padding: 
 /* One line per item on the monitor so all 25 rows fit on screen. */
 body.monitor .bk > div { display: inline; }
 body.monitor .bk .bk-time::before, body.monitor .bk .bk-title + .bk-time::before { content: " · "; }
-body.monitor .bk .bk-ref::after { content: " "; }
 body.monitor .sep { margin: 0; font-size: .8em; }
 body.monitor table.week tr.tall td, body.monitor table.week tr.tall th { height: auto; }
 body.monitor .bk-time { display: inline; }

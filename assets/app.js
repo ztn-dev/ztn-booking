@@ -155,11 +155,8 @@ export function weekGridHTML(rows, weekStart, { now = null } = {}) {
     const s = toMin(b.start_time), e = toMin(b.end_time);
     if (!(e > s)) continue;
     const key = ++seq;
-    const first = isShow
-      ? `<div class="bk show"><div class="bk-title">${esc(b.title)}</div><div class="bk-time">${mm(s)}–${mm(e)} · ${esc(b.studio)}</div></div>`
-      : `<div class="bk ${b.status === 'Completed' ? 'done' : ''}"><div class="bk-ref">${esc(b.ref)} · ${esc(b.studio)}</div>
-           <div class="bk-title">${esc(b.title)}</div><div class="bk-time">${mm(s)}–${mm(e)}</div></div>`;
-    const cont = `<div class="bk cont">↳ ${esc(isShow ? b.title : b.ref)} (cont.)</div>`;
+    const first = `<div class="bk ${b.status === 'Completed' ? 'done' : ''}"><div class="bk-title">${esc(b.title)}</div><div class="bk-time">${mm(s)}–${mm(e)} · ${esc(b.studio)}</div></div>`;
+    const cont = `<div class="bk cont">↳ ${esc(b.title)} (cont.)</div>`;
     let n = 0;
     for (let k = 0; k < slots; k++) {
       if (s < SLOT_BOUNDS[k + 1] && e > SLOT_BOUNDS[k]) {
