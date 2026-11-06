@@ -167,7 +167,7 @@ table.week td.today { box-shadow: inset 3px 0 0 #f5c542, inset -3px 0 0 #f5c542;
 table.week tr.now th.slot { background: #f5c542; color: #1b2333; }
 .bk-title { margin: 1px 0; font-weight: 700; text-transform: uppercase; }
 .bk-time { color: var(--muted); font-variant-numeric: tabular-nums; }
-.bk.cont { color: var(--muted); font-style: italic; }
+.bk.cont { color: var(--muted); text-transform: uppercase; }
 .bk.done { opacity: .65; }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .85rem; color: var(--muted); margin: 0 0 10px; }
 .legend i { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: -2px; margin-right: 6px; border: 1px solid var(--border); }

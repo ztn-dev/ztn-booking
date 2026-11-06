@@ -141,11 +141,12 @@ export function toast(msg, kind = 'info', ms = 4500) {
 // Weekly grid shared by the monitor and the engineer console, drawn like the
 // workbook's Weekly Overview: regular shows green, bookings blue, and a cell
 // red only when the same studio is used twice in it. Consecutive slots that
-// hold one and the same item are merged into a single tall cell.
+// hold exactly the same items are merged into a single tall cell. A cell lists
+// what starts in it; only when nothing starts there does it name what carries on.
 export function weekGridHTML(rows, weekStart, { now = null } = {}) {
   const slots = SLOT_BOUNDS.length - 1;
   const cells = Array.from({ length: slots }, () => Array.from({ length: 7 },
-    () => ({ items: [], studios: new Set(), clash: false, booked: false, owner: null })));
+    () => ({ keys: [], starts: [], carries: [], studios: new Set(), clash: false, booked: false })));
   let seq = 0;
   for (const b of rows) {
     const isShow = b.kind === 'show';
@@ -156,15 +157,15 @@ export function weekGridHTML(rows, weekStart, { now = null } = {}) {
     if (!(e > s)) continue;
     const key = ++seq;
     const first = `<div class="bk ${b.status === 'Completed' ? 'done' : ''}"><div class="bk-title">${esc(b.title)}</div><div class="bk-time">${mm(s)}–${mm(e)} · ${esc(b.studio)}</div></div>`;
-    const cont = `<div class="bk cont">↳ ${esc(b.title)} (cont.)</div>`;
+    const cont = `<div class="bk cont">${esc(b.title)}</div>`;
     let n = 0;
     for (let k = 0; k < slots; k++) {
       if (s < SLOT_BOUNDS[k + 1] && e > SLOT_BOUNDS[k]) {
         const c = cells[k][day];
         if (c.studios.has(b.studio)) c.clash = true;
         c.studios.add(b.studio);
-        c.items.push(n === 0 ? first : cont);
-        c.owner = c.items.length === 1 ? key : null;
+        c.keys.push(key);
+        if (n === 0) c.starts.push(first); else c.carries.push(cont);
         if (!isShow) c.booked = true;
         n++;
       }
@@ -176,9 +177,8 @@ export function weekGridHTML(rows, weekStart, { now = null } = {}) {
   for (let d = 0; d < 7; d++) {
     for (let k = 0; k < slots;) {
       let m = k;
-      if (cells[k][d].items.length === 1) {
-        while (m + 1 < slots && cells[m + 1][d].items.length === 1 && cells[m + 1][d].owner === cells[k][d].owner) m++;
-      }
+      const same = cells[k][d].keys.join();
+      if (same) while (m + 1 < slots && cells[m + 1][d].keys.join() === same) m++;
       span[k][d] = m - k + 1;
       for (let j = k + 1; j <= m; j++) span[j][d] = 0;
       k = m + 1;
@@ -198,9 +198,10 @@ export function weekGridHTML(rows, weekStart, { now = null } = {}) {
     for (let d = 0; d < 7; d++) {
       if (!span[k][d]) continue;
       const c = cells[k][d];
-      const fill = !c.items.length ? '' : c.clash ? 'clash' : c.booked ? 'busy' : 'show';
+      const fill = !c.keys.length ? '' : c.clash ? 'clash' : c.booked ? 'busy' : 'show';
       const cls = [d === todayIdx ? 'today' : '', fill].join(' ').trim();
-      html += `<td class="${cls}" data-day="${d}" data-slot="${k}"${span[k][d] > 1 ? ` rowspan="${span[k][d]}"` : ''}>${c.items.join('<div class="sep">— — —</div>')}</td>`;
+      const shown = c.starts.length ? c.starts : c.carries;
+      html += `<td class="${cls}" data-day="${d}" data-slot="${k}"${span[k][d] > 1 ? ` rowspan="${span[k][d]}"` : ''}>${shown.join('<div class="sep">— — —</div>')}</td>`;
     }
     html += '</tr>';
   }
