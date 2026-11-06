@@ -42,12 +42,23 @@ export const toMin = (t) => {
 };
 export const hm = (t) => (t ? String(t).slice(0, 5) : '');
 
+// A TV's own clock can be days out, so screens set theirs from the web server's
+// time. Small differences are ignored to keep the countdown smooth.
+let clockOffset = 0;
+export async function syncClock() {
+  try {
+    const r = await fetch(location.href.split('#')[0], { method: 'HEAD', cache: 'no-store' });
+    const diff = Date.parse(r.headers.get('date')) - Date.now();
+    if (Number.isFinite(diff)) clockOffset = Math.abs(diff) > 5000 ? diff : 0;
+  } catch { /* offline: keep the last known time */ }
+}
+
 // Date and minutes "now" in the studio's time zone.
 export function nowParts() {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
     timeZone: TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
-  }).formatToParts(new Date()).map((p) => [p.type, p.value]));
+  }).formatToParts(new Date(Date.now() + clockOffset)).map((p) => [p.type, p.value]));
   return {
     date: `${parts.year}-${parts.month}-${parts.day}`,
     minutes: Number(parts.hour) * 60 + Number(parts.minute),

@@ -63,7 +63,7 @@
   </script>
 
   <script type="module">
-    import { db, isConfigured, showNotConfigured, mondayOf, fmtDate, nowParts, toMin, hm, esc, weekGridHTML, errMsg } from './assets/app.js';
+    import { db, isConfigured, showNotConfigured, mondayOf, fmtDate, nowParts, toMin, hm, esc, weekGridHTML, errMsg, syncClock } from './assets/app.js';
 
     // URL options: ?key=MONITOR_KEY  ?week=YYYY-MM-DD (any day in the week)  ?refresh=60 (seconds)
     const params = new URLSearchParams(location.search);
@@ -156,7 +156,8 @@
     if (!isConfigured) {
       showNotConfigured($('setup'));
     } else {
-      refresh();
+      syncClock().then(refresh);
+      setInterval(syncClock, 3600 * 1000);
       setInterval(refresh, refreshSec * 1000);
       // Instant sync: the database broadcasts "changed" on every booking or show
       // edit; reload the week a moment later. The interval above is the backup.

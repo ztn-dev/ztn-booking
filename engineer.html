@@ -260,7 +260,7 @@
     import {
       db, isConfigured, showNotConfigured, STATUSES, STUDIOS, PRIORITIES, LIVE_RECORDED,
       todayISO, addDays, mondayOf, fmtDate, dayName, hm, esc, statusPill, errMsg, toast, weekGridHTML, nowParts,
-      DAY_SHORT, daysLabel, AUTH_LINK_TYPE, SLOT_BOUNDS, mm, watchForUpdate,
+      DAY_SHORT, daysLabel, AUTH_LINK_TYPE, SLOT_BOUNDS, mm, watchForUpdate, syncClock,
     } from './assets/app.js';
 
     const $ = (id) => document.getElementById(id);
@@ -294,6 +294,7 @@
       $('to').value = addDays(mondayOf(todayISO()), 55);
 
       watchForUpdate({ isBusy: () => needPassword });
+      syncClock();
 
       db.auth.onAuthStateChange((evt, session) => {
         if (evt === 'PASSWORD_RECOVERY') needPassword = true;
