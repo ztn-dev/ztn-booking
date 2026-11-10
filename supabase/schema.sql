@@ -23,6 +23,10 @@ create extension if not exists pg_net;
 create or replace function public.ztn_tz() returns text
 language sql immutable as $$ select 'Africa/Harare' $$;
 
+-- Monday of the current week in Harare. Weeks before it have ended and are locked.
+create or replace function public.ztn_week_open() returns date
+language sql stable as $$ select date_trunc('week', now() at time zone public.ztn_tz())::date $$;
+
 create or replace function public.ztn_statuses() returns text[]
 language sql immutable as $$
   select array['Requested','Pending Approval','Conflict','Confirmed',
@@ -352,6 +356,36 @@ language sql stable security definer set search_path = public as $$
    where u.email is not null order by 1
 $$;
 
+-- Ended weeks are read-only. Applies to everything that comes through the
+-- website or API (session user "authenticator"); the hourly job and the SQL
+-- editor can still correct records. Runs before bookings_before (alphabetical).
+create or replace function public.bookings_lock_past() returns trigger
+language plpgsql set search_path = public as $$
+declare
+  v_open date := public.ztn_week_open();
+begin
+  if session_user <> 'authenticator' then
+    return case when tg_op = 'DELETE' then old else new end;
+  end if;
+  if tg_op = 'UPDATE' then
+    -- The email sender only records what it has sent.
+    if (to_jsonb(new) - 'notified_status') = (to_jsonb(old) - 'notified_status') then return new; end if;
+    -- Engineers' "close completed" button finishing last week's bookings.
+    if old.status = 'Confirmed' and new.status = 'Completed'
+       and current_setting('ztn.actor', true) = 'Automatic (hourly auto-complete)' then
+      return new;
+    end if;
+  end if;
+  if (tg_op <> 'INSERT' and old.booking_date < v_open) or (tg_op <> 'DELETE' and new.booking_date < v_open) then
+    raise exception 'That week has ended and its schedule is locked';
+  end if;
+  return case when tg_op = 'DELETE' then old else new end;
+end $$;
+
+drop trigger if exists bookings_a_lock_past on public.bookings;
+create trigger bookings_a_lock_past before insert or update or delete on public.bookings
+  for each row execute function public.bookings_lock_past();
+
 drop trigger if exists bookings_before on public.bookings;
 create trigger bookings_before before insert or update on public.bookings
   for each row execute function public.bookings_before();
@@ -474,10 +508,30 @@ returns table (kind text, ref text, booking_date date, start_time time, end_time
 language plpgsql stable security definer set search_path = public as $$
 declare
   v_key text;
+  v_arch jsonb;
 begin
   select value into v_key from public.app_settings where key = 'monitor_key';
   if coalesce(v_key, '') <> '' and coalesce(p_key, '') <> v_key and not public.is_engineer() then
     raise exception 'Invalid monitor key';
+  end if;
+  -- A week that has ended shows exactly what was archived, so later edits to
+  -- weekly shows can't change it. Weeks without a snapshot use live data.
+  select a.data into v_arch from public.weekly_archives a
+   where a.week_start = p_start and p_start < public.ztn_week_open();
+  if v_arch is not null then
+    return query
+      select x.* from (
+        select 'show'::text, null::text, (j->>'date')::date, (j->>'start')::time, (j->>'end')::time,
+               j->>'studio', j->>'title', 'Show'::text
+          from jsonb_array_elements(v_arch->'shows') j
+        union all
+        select 'booking'::text, j->>'ref', (j->>'date')::date, (j->>'start')::time, (j->>'end')::time,
+               j->>'studio', j->>'title', j->>'status'
+          from jsonb_array_elements(v_arch->'bookings') j
+         where j->>'status' = any (public.ztn_firm())
+      ) x
+      order by 3, 4, 1 desc;
+    return;
   end if;
   return query
     select x.* from (
@@ -505,7 +559,8 @@ declare
 begin
   if not public.is_engineer() then raise exception 'Engineers only'; end if;
   with before as (
-    select id, status from public.bookings where status = any (public.ztn_live())
+    select id, status from public.bookings
+     where status = any (public.ztn_live()) and booking_date >= public.ztn_week_open()
   ), upd as (
     update public.bookings b set updated_at = now()
       from before where b.id = before.id
@@ -605,6 +660,10 @@ declare
   v_email text;
 begin
   if not public.is_engineer() then raise exception 'Engineers only'; end if;
+  if date_trunc('week', p_start)::date < public.ztn_week_open()
+     and exists (select 1 from public.weekly_archives where week_start = date_trunc('week', p_start)::date) then
+    raise exception 'That week has ended and its snapshot is locked';
+  end if;
   select email into v_email from auth.users where id = auth.uid();
   return public._archive_week(p_start, coalesce(v_email, 'engineer'));
 end $$;
@@ -789,6 +848,7 @@ revoke all on function public.next_booking_ref() from public, anon, authenticate
 revoke all on function public.find_show_overlaps(date, time, time, time, text) from public, anon, authenticated;
 revoke all on function public._close_completed() from public, anon, authenticated;
 revoke all on function public.bookings_before() from public, anon, authenticated;
+revoke all on function public.bookings_lock_past() from public, anon, authenticated;
 revoke all on function public.bookings_after() from public, anon, authenticated;
 revoke all on function public.bookings_notify() from public, anon, authenticated;
 revoke all on function public.engineer_emails() from public, anon, authenticated;

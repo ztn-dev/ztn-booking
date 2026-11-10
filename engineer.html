@@ -95,6 +95,7 @@
           <button class="btn" id="weekPrintBtn">Print / Save as PDF</button>
         </div>
         <div class="legend"><span><i class="l-show"></i>Regular show</span><span><i class="l-busy"></i>Confirmed / completed booking</span><span><i class="l-clash"></i>Same studio used twice</span><span>Tip: click an empty slot to add a programme there.</span></div>
+        <div id="weekLocked" class="notice warn" hidden>This week has ended, so it's locked: nothing can be added or changed. It shows the schedule as saved on Sunday night.</div>
         <div class="table-wrap" id="weekGrid"></div>
       </div>
       <div id="tab-audit" hidden>
@@ -264,6 +265,8 @@
     } from './assets/app.js';
 
     const $ = (id) => document.getElementById(id);
+    const weekOpen = () => mondayOf(todayISO());
+    const isLocked = (b) => !!b && b.booking_date < weekOpen();
     const opts = (list, blank) => (blank ? '<option value=""></option>' : '') + list.map((v) => `<option>${esc(v)}</option>`).join('');
     let rows = [];
     let weekStart = mondayOf(todayISO());
@@ -477,7 +480,8 @@
           <td>${hm(b.end_time)}</td><td>${esc(b.studio)}</td><td>${esc(b.title)}</td>
           <td>${esc(b.requester_name)}${b.department ? ` — ${esc(b.department)}` : ''}<br><small><a href="mailto:${esc(b.requester_email)}">${esc(b.requester_email)}</a></small></td>
           <td>${esc(b.producer)}</td><td>${esc(b.live_recorded)}</td><td>${esc(b.crew)}</td>
-          <td><select data-status="${b.id}" aria-label="Status for ${esc(b.ref)}">${STATUSES.map((s) => `<option ${s === b.status ? 'selected' : ''}>${s}</option>`).join('')}</select>
+          <td>${isLocked(b) ? '<small class="count">Locked (week ended)</small>'
+                : `<select data-status="${b.id}" aria-label="Status for ${esc(b.ref)}">${STATUSES.map((s) => `<option ${s === b.status ? 'selected' : ''}>${s}</option>`).join('')}</select>`}
               <div style="margin-top:4px">${statusPill(b.status)}</div></td>
           <td>${esc(b.priority)}</td><td class="notes">${esc(b.notes)}</td></tr>`).join('')}
         </tbody></table>`;
@@ -516,8 +520,12 @@
       editing = b;
       const f = $('editForm');
       f.reset();
-      $('editTitle').textContent = b ? `${b.ref} — ${b.title}` : 'New booking';
-      $('deleteBtn').hidden = !b;
+      const locked = isLocked(b);
+      $('editTitle').textContent = b ? `${b.ref} — ${b.title}${locked ? ' (locked: week ended)' : ''}` : 'New booking';
+      $('deleteBtn').hidden = !b || locked;
+      $('saveBtn').hidden = locked;
+      f.querySelectorAll('input, select, textarea').forEach((el) => (el.disabled = locked));
+      f.booking_date.min = locked ? '' : weekOpen();
       const v = b || { booking_date: todayISO(), status: 'Requested', studio: STUDIOS[0] };
       for (const el of f.elements) {
         if (!el.name || !(el.name in v)) continue;
@@ -810,8 +818,11 @@
       const { data, error } = await db.rpc('week_overview', { p_start: weekStart });
       if (error) return toast(errMsg(error), 'bad');
       $('weekGrid').innerHTML = weekGridHTML(data, weekStart, { now: nowParts() });
+      const ended = weekStart < weekOpen();
+      $('weekLocked').hidden = !ended;
+      $('quickAddBtn').disabled = ended;
       $('weekGrid').querySelectorAll('td[data-slot]').forEach((td) => {
-        if (td.classList.contains('busy') || td.classList.contains('show') || td.classList.contains('clash')) return;
+        if (ended || td.classList.contains('busy') || td.classList.contains('show') || td.classList.contains('clash')) return;
         td.classList.add('addable');
         td.title = 'Click to add a programme here';
         td.onclick = () => {
@@ -827,7 +838,8 @@
       const f = $('quickForm');
       f.reset();
       $('quickError').hidden = true;
-      f.date.value = date;
+      f.date.min = weekOpen();
+      f.date.value = date < weekOpen() ? todayISO() : date;
       f.start.value = mm(start);
       f.end.value = mm(end);
       f.studio.value = STUDIOS[0];
