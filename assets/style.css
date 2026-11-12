@@ -187,7 +187,7 @@ table.week tr.now th.slot { background: #f5c542; color: #1b2333; }
 /* Studio monitor: dark, large, no chrome */
 body.monitor { --bg: #0b0f19; --surface: #121a2b; --surface-2: #1a2440; --text: #f1f4fa; --muted: #9fb0cf;
   --border: #26324d; --busy: #17345c; --show: #1d4a2c; --clash: #861f33;
-  --st1: #17406e; --st2: #1d5230; --sta: #4a2f72; --stm: #9a4d12; --sto: #3a4252; background: var(--bg); color: var(--text); overflow: hidden;
+  --st1: #17406e; --st2: #1d5230; --sta: #4a2f72; --stm: #8c440f; --sto: #3a4252; background: var(--bg); color: var(--text); overflow: hidden;
   display: flex; flex-direction: column; height: 100vh; }
 /* Header: title | ON NOW / NEXT panel | clock, all vertically centred. */
 body.monitor .mon-head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) auto; align-items: center; gap: 2vw; padding: 1.2vh 1.6vw; background: var(--navy); }
