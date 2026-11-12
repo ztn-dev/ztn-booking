@@ -12,7 +12,7 @@
   --show: #e2efda;
   --clash: #ffc7ce;
   /* One colour per studio on the week grids; red is kept for clashes. */
-  --st1: #cfe2f7; --st2: #d4edcc; --sta: #e5d8f3; --stm: #fbe3b0; --sto: #e3e6eb;
+  --st1: #cfe2f7; --st2: #d4edcc; --sta: #e5d8f3; --stm: #fdd0a2; --sto: #e3e6eb;
   --ok-bg: #c6efce; --ok-fg: #006100;
   --done-bg: #d9d9d9; --done-fg: #595959;
   --wait-bg: #ffeb9c; --wait-fg: #9c6500;
@@ -25,7 +25,7 @@
   :root:not([data-theme="light"]) {
     --bg: #0f1420; --surface: #171e2e; --surface-2: #1f2840; --text: #e6e9ef; --muted: #9aa4b6;
     --border: #2e3a55; --busy: #1d3557; --show: #1f3d2a; --clash: #5a1f2a;
-    --st1: #1d3a63; --st2: #1f4429; --sta: #3d2b5c; --stm: #5c4510; --sto: #333a46;
+    --st1: #1d3a63; --st2: #1f4429; --sta: #3d2b5c; --stm: #7a3c12; --sto: #333a46;
     --ok-bg: #1e4d2b; --ok-fg: #b7f0c4; --done-bg: #3a3f4a; --done-fg: #c9ccd2;
     --wait-bg: #4d3d0f; --wait-fg: #ffe08a; --bad-bg: #5a1f2a; --bad-fg: #ffc2cb;
     --move-bg: #1d3557; --move-fg: #cfe3f7;
@@ -187,7 +187,7 @@ table.week tr.now th.slot { background: #f5c542; color: #1b2333; }
 /* Studio monitor: dark, large, no chrome */
 body.monitor { --bg: #0b0f19; --surface: #121a2b; --surface-2: #1a2440; --text: #f1f4fa; --muted: #9fb0cf;
   --border: #26324d; --busy: #17345c; --show: #1d4a2c; --clash: #861f33;
-  --st1: #17406e; --st2: #1d5230; --sta: #4a2f72; --stm: #6e5210; --sto: #3a4252; background: var(--bg); color: var(--text); overflow: hidden;
+  --st1: #17406e; --st2: #1d5230; --sta: #4a2f72; --stm: #9a4d12; --sto: #3a4252; background: var(--bg); color: var(--text); overflow: hidden;
   display: flex; flex-direction: column; height: 100vh; }
 /* Header: title | ON NOW / NEXT panel | clock, all vertically centred. */
 body.monitor .mon-head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) auto; align-items: center; gap: 2vw; padding: 1.2vh 1.6vw; background: var(--navy); }
