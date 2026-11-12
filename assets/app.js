@@ -149,9 +149,12 @@ export function toast(msg, kind = 'info', ms = 4500) {
   setTimeout(() => t.remove(), ms);
 }
 
+// "Audio Studio" -> "st-audio-studio": the colour class for a studio.
+export const studioClass = (s) => `st-${String(s || 'Other').toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+
 // Weekly grid shared by the monitor and the engineer console, drawn like the
-// workbook's Weekly Overview: regular shows green, bookings blue, and a cell
-// red only when the same studio is used twice in it. Consecutive slots that
+// workbook's Weekly Overview, coloured by studio, and a cell red only when the
+// same studio is used twice in it. Consecutive slots that
 // hold exactly the same items are merged into a single tall cell. A cell lists
 // what starts in it; only when nothing starts there does it name what carries on.
 export function weekGridHTML(rows, weekStart, { now = null } = {}) {
@@ -167,8 +170,9 @@ export function weekGridHTML(rows, weekStart, { now = null } = {}) {
     const s = toMin(b.start_time), e = toMin(b.end_time);
     if (!(e > s)) continue;
     const key = ++seq;
-    const first = `<div class="bk ${b.status === 'Completed' ? 'done' : ''}"><div class="bk-title">${esc(b.title)}</div><div class="bk-time">${mm(s)}–${mm(e)} · ${esc(b.studio)}</div></div>`;
-    const cont = `<div class="bk cont">${esc(b.title)}</div>`;
+    const st = studioClass(b.studio);
+    const first = `<div class="bk ${st}${b.status === 'Completed' ? ' done' : ''}"><div class="bk-title">${esc(b.title)}</div><div class="bk-time">${mm(s)}–${mm(e)} · ${esc(b.studio)}</div></div>`;
+    const cont = `<div class="bk cont ${st}">${esc(b.title)}</div>`;
     let n = 0;
     for (let k = 0; k < slots; k++) {
       if (s < SLOT_BOUNDS[k + 1] && e > SLOT_BOUNDS[k]) {
@@ -209,7 +213,8 @@ export function weekGridHTML(rows, weekStart, { now = null } = {}) {
     for (let d = 0; d < 7; d++) {
       if (!span[k][d]) continue;
       const c = cells[k][d];
-      const fill = !c.keys.length ? '' : c.clash ? 'clash' : c.booked ? 'busy' : 'show';
+      // One studio: the cell takes its colour. Several: each item shows its own.
+      const fill = !c.keys.length ? '' : `filled ${c.clash ? 'clash' : c.studios.size === 1 ? studioClass([...c.studios][0]) : 'mixed'}`;
       const cls = [d === todayIdx ? 'today' : '', fill].join(' ').trim();
       const shown = c.starts.length ? c.starts : c.carries;
       html += `<td class="${cls}" data-day="${d}" data-slot="${k}"${span[k][d] > 1 ? ` rowspan="${span[k][d]}"` : ''}>${shown.join('<div class="sep">— — —</div>')}</td>`;

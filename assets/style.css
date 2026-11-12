@@ -11,6 +11,8 @@
   --busy: #ddebf7;
   --show: #e2efda;
   --clash: #ffc7ce;
+  /* One colour per studio on the week grids; red is kept for clashes. */
+  --st1: #cfe2f7; --st2: #d4edcc; --sta: #e5d8f3; --stm: #fbe3b0; --sto: #e3e6eb;
   --ok-bg: #c6efce; --ok-fg: #006100;
   --done-bg: #d9d9d9; --done-fg: #595959;
   --wait-bg: #ffeb9c; --wait-fg: #9c6500;
@@ -23,6 +25,7 @@
   :root:not([data-theme="light"]) {
     --bg: #0f1420; --surface: #171e2e; --surface-2: #1f2840; --text: #e6e9ef; --muted: #9aa4b6;
     --border: #2e3a55; --busy: #1d3557; --show: #1f3d2a; --clash: #5a1f2a;
+    --st1: #1d3a63; --st2: #1f4429; --sta: #3d2b5c; --stm: #5c4510; --sto: #333a46;
     --ok-bg: #1e4d2b; --ok-fg: #b7f0c4; --done-bg: #3a3f4a; --done-fg: #c9ccd2;
     --wait-bg: #4d3d0f; --wait-fg: #ffe08a; --bad-bg: #5a1f2a; --bad-fg: #ffc2cb;
     --move-bg: #1d3557; --move-fg: #cfe3f7;
@@ -159,9 +162,16 @@ table.week th.slot, table.week th.slot-h { width: 110px; font-size: .8rem; font-
 table.week th.slot-h { background: var(--blue); color: #fff; }
 table.week td { font-size: .8rem; height: 30px; padding: 3px 6px; vertical-align: middle; text-align: center; }
 table.week tr.tall td, table.week tr.tall th { height: 44px; }
-table.week td.show { background: var(--show); }
-table.week td.busy { background: var(--busy); }
+.st-studio-1 { --st: var(--st1); } .st-studio-2 { --st: var(--st2); } .st-audio-studio { --st: var(--sta); }
+.st-mcr { --st: var(--stm); } .st-other { --st: var(--sto); }
+table.week td.filled { background: var(--st, var(--surface)); }
+table.week td.mixed { background: var(--surface); }
+table.week td.mixed .bk { background: var(--st); border-radius: 4px; padding: 2px 4px; }
 table.week td.clash { background: var(--clash); }
+/* Secondary text stays readable on every studio colour. */
+table.week td.filled .bk-time, table.week td.filled .bk.cont { color: #3f4859; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) table.week td.filled .bk-time, :root:not([data-theme="light"]) table.week td.filled .bk.cont { color: #d3dcee; } }
+:root[data-theme="dark"] table.week td.filled .bk-time, :root[data-theme="dark"] table.week td.filled .bk.cont { color: #d3dcee; }
 table.week thead th.today { background: var(--navy); box-shadow: inset 0 -4px 0 #f5c542; }
 table.week td.today { box-shadow: inset 3px 0 0 #f5c542, inset -3px 0 0 #f5c542; }
 table.week tr.now th.slot { background: #f5c542; color: #1b2333; }
@@ -171,12 +181,13 @@ table.week tr.now th.slot { background: #f5c542; color: #1b2333; }
 .bk.done { opacity: .65; }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .85rem; color: var(--muted); margin: 0 0 10px; }
 .legend i { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: -2px; margin-right: 6px; border: 1px solid var(--border); }
-.legend .l-show { background: var(--show); } .legend .l-busy { background: var(--busy); } .legend .l-clash { background: var(--clash); }
+.legend i[class^="st-"] { background: var(--st); } .legend .l-clash { background: var(--clash); }
 .sep { text-align: center; color: var(--muted); font-size: .75em; margin: 3px 0; }
 
 /* Studio monitor: dark, large, no chrome */
 body.monitor { --bg: #0b0f19; --surface: #121a2b; --surface-2: #1a2440; --text: #f1f4fa; --muted: #9fb0cf;
-  --border: #26324d; --busy: #17345c; --show: #1d4a2c; --clash: #6b1d2b; background: var(--bg); color: var(--text); overflow: hidden;
+  --border: #26324d; --busy: #17345c; --show: #1d4a2c; --clash: #861f33;
+  --st1: #17406e; --st2: #1d5230; --sta: #4a2f72; --stm: #6e5210; --sto: #3a4252; background: var(--bg); color: var(--text); overflow: hidden;
   display: flex; flex-direction: column; height: 100vh; }
 /* Header: title | ON NOW / NEXT panel | clock, all vertically centred. */
 body.monitor .mon-head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) auto; align-items: center; gap: 2vw; padding: 1.2vh 1.6vw; background: var(--navy); }
@@ -195,6 +206,7 @@ body.monitor .bk-time { display: inline; }
 body.monitor table.week thead th { font-size: calc(var(--mon-font) * 1.2); padding: .3vh .4vw; }
 body.monitor .legend { font-size: .85vw; margin: .3vh 0 0; color: #cdd8ee; }
 body.monitor .legend i { border-color: #cdd8ee; }
+body.monitor table.week td.filled .bk-time, body.monitor table.week td.filled .bk.cont { color: #d3dcee; }
 body.monitor table.week th.slot, body.monitor table.week th.slot-h { width: 7vw; font-size: var(--mon-font); padding: 0 .3vw; }
 /* ON NOW / NEXT, in the header just before the clock */
 body.monitor .now-next { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: .9vw; row-gap: .5vh; align-items: center;

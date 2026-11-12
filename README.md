@@ -6,7 +6,7 @@ A small website for booking ZTN studios. It has three pages:
 |---|---|---|
 | `index.html` | Anyone with the link | Booking request form. Shows what is already booked in the chosen studio that day, including regular shows. |
 | `engineer.html` | Studio engineers (sign-in) | Approve, decline, cancel, reschedule and edit bookings; manage the weekly shows; re-check conflicts; export CSV for Excel. |
-| `monitor.html` | Studio TV | Full-screen weekly overview: regular shows in green, bookings in blue, red where the same studio is used twice. Refreshes every minute. |
+| `monitor.html` | Studio TV | Full-screen weekly overview, coloured by studio (Studio 1, Studio 2, Audio Studio, MCR, Other), red where the same studio is used twice. Updates instantly. |
 
 The rules match the Excel workbook (`ZTN_Booking_System.bas`):
 

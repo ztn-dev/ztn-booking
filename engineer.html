@@ -94,7 +94,7 @@
           <button class="btn" id="weekCsvBtn">Download week (Excel/CSV)</button>
           <button class="btn" id="weekPrintBtn">Print / Save as PDF</button>
         </div>
-        <div class="legend"><span><i class="l-show"></i>Regular show</span><span><i class="l-busy"></i>Confirmed / completed booking</span><span><i class="l-clash"></i>Same studio used twice</span><span>Tip: click an empty slot to add a programme there.</span></div>
+        <div class="legend"><span><i class="st-studio-1"></i>Studio 1</span><span><i class="st-studio-2"></i>Studio 2</span><span><i class="st-audio-studio"></i>Audio Studio</span><span><i class="st-mcr"></i>MCR</span><span><i class="st-other"></i>Other</span><span><i class="l-clash"></i>Same studio used twice</span><span>Tip: click an empty slot to add a programme there.</span></div>
         <div id="weekLocked" class="notice warn" hidden>This week has ended, so it's locked: nothing can be added or changed. It shows the schedule as saved on Sunday night.</div>
         <div class="table-wrap" id="weekGrid"></div>
       </div>
@@ -822,7 +822,7 @@
       $('weekLocked').hidden = !ended;
       $('quickAddBtn').disabled = ended;
       $('weekGrid').querySelectorAll('td[data-slot]').forEach((td) => {
-        if (ended || td.classList.contains('busy') || td.classList.contains('show') || td.classList.contains('clash')) return;
+        if (ended || td.classList.contains('filled')) return;
         td.classList.add('addable');
         td.title = 'Click to add a programme here';
         td.onclick = () => {
