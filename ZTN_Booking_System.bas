@@ -22,6 +22,9 @@ Private Const SH_SHOWS As String = "Weekly Shows"
 Private Const SHOWS_FIRST_ROW As Long = 5
 Private Const SHOWS_PREP_LAST_ROW As Long = 120
 Private Const DEFAULT_SHOW_STUDIO As String = "Studio 1"
+Private Const SH_CHANGES As String = "Show Changes"
+Private Const CHG_FIRST_ROW As Long = 5
+Private Const CHG_PREP_LAST_ROW As Long = 200
 
 ' Studio Schedule columns (O..Q are hidden engine columns)
 Private Const C_REF As Long = 1
@@ -140,11 +143,14 @@ Public Sub BuildZTNWorkbook()
     BuildWeekly ws
     Set ws = wb.Worksheets.Add(After:=wb.Sheets(wb.Sheets.Count)): ws.Name = SH_SHOWS
     BuildWeeklyShows ws
+    Set ws = wb.Worksheets.Add(After:=wb.Sheets(wb.Sheets.Count)): ws.Name = SH_CHANGES
+    BuildShowChanges ws
     Set ws = wb.Worksheets.Add(After:=wb.Sheets(wb.Sheets.Count)): ws.Name = SH_HOWTO
     BuildHowTo ws
     tmp.Delete
 
     ViewSetup wb.Worksheets(SH_HOWTO), 0, False
+    ViewSetup wb.Worksheets(SH_CHANGES), 4, True
     ViewSetup wb.Worksheets(SH_SHOWS), 4, True
     ViewSetup wb.Worksheets(SH_WEEK), 4, False
     ViewSetup wb.Worksheets(SH_SCHED), 4, True
@@ -154,6 +160,7 @@ Public Sub BuildZTNWorkbook()
     ProtectSheet wb.Worksheets(SH_SCHED)
     ProtectSheet wb.Worksheets(SH_WEEK)
     ProtectSheet wb.Worksheets(SH_SHOWS)
+    ProtectSheet wb.Worksheets(SH_CHANGES)
     ProtectSheet wb.Worksheets(SH_HOWTO)
 
     RebuildWeeklyOverview
@@ -407,13 +414,18 @@ Private Sub BuildWeekly(ByVal ws As Worksheet)
         .HorizontalAlignment = xlCenter
         .Font.Size = 9
     End With
-    With ws.Range("C3")
-        .Value = "Green = regular show   " & ChrW(183) & "   Blue = booking   " & ChrW(183) & _
-                 "   Red = same studio used twice"
-        .Font.Italic = True
-        .Font.Color = RGB(89, 89, 89)
-        .VerticalAlignment = xlCenter
-    End With
+    ' Legend: one colour per studio, red for the same studio used twice.
+    Dim lg As Variant
+    lg = Array("Studio 1", "Studio 2", "Audio Studio", "MCR", "Other", "Same studio twice")
+    For i = 0 To 5
+        With ws.Cells(3, i + 3)
+            .Value = lg(i)
+            .Interior.Color = IIf(i = 5, ClashColor(), StudioColor(CStr(lg(i))))
+            .Font.Size = 9: .Font.Bold = True: .Font.Color = RGB(20, 8, 0)
+            .HorizontalAlignment = xlCenter: .VerticalAlignment = xlCenter
+            .Borders.LineStyle = xlContinuous: .Borders.Color = RGB(166, 166, 166)
+        End With
+    Next i
 
     ws.Cells(WEEK_FIRST_ROW + nSlots, 1).Font.Italic = True
     ws.Cells(WEEK_FIRST_ROW + nSlots, 1).Font.Color = RGB(118, 118, 118)
@@ -499,6 +511,83 @@ Private Sub BuildWeeklyShows(ByVal ws As Worksheet)
     ws.Range(ws.Cells(1, 1), ws.Cells(4, 10)).Locked = True
 End Sub
 
+Private Sub BuildShowChanges(ByVal ws As Worksheet)
+    Dim hdr As Variant, widths As Variant, i As Long, lastR As Long
+
+    lastR = CHG_PREP_LAST_ROW
+    hdr = Array("Show / Programme", "Usual Date", "Change", "New Date", "New Start", "New End", "New Studio", "Note")
+    widths = Array(40, 14, 14, 14, 11, 11, 16, 40)
+    ws.Cells.Font.Name = "Calibri"
+    ws.Cells.Font.Size = 10
+    For i = 0 To UBound(hdr)
+        ws.Cells(4, i + 1).Value = hdr(i)
+        ws.Columns(i + 1).ColumnWidth = widths(i)
+    Next i
+    With ws.Range("A1:H1")
+        .Merge
+        .Value = "ZTN SHOW CHANGES (ONE WEEK ONLY)"
+        .Font.Size = 16: .Font.Bold = True: .Font.Color = RGB(255, 255, 255)
+        .Interior.Color = RGB(31, 56, 100)
+        .HorizontalAlignment = xlCenter: .VerticalAlignment = xlCenter
+        .RowHeight = 30
+    End With
+    With ws.Range("A2:H2")
+        .Merge
+        .Value = "Cancel or move a regular show for ONE date. Usual Date = the date it would normally run. " & _
+                 "For Moved, fill New Date, Start, End and Studio. The following week the show is back at its normal time. " & _
+                 "Rows for weeks that have ended are locked."
+        .Font.Italic = True
+        .WrapText = True
+        .HorizontalAlignment = xlCenter
+        .RowHeight = 42
+    End With
+    With ws.Range("A4:H4")
+        .Font.Bold = True: .Font.Color = RGB(255, 255, 255)
+        .Interior.Color = RGB(84, 130, 53)
+        .HorizontalAlignment = xlCenter: .VerticalAlignment = xlCenter
+        .WrapText = True
+        .RowHeight = 30
+    End With
+    With ws.Range(ws.Cells(CHG_FIRST_ROW, 1), ws.Cells(lastR, 8))
+        .Borders.LineStyle = xlContinuous
+        .Borders.Color = RGB(217, 217, 217)
+        .VerticalAlignment = xlTop
+        .Locked = False
+    End With
+    ws.Range(ws.Cells(CHG_FIRST_ROW, 2), ws.Cells(lastR, 2)).NumberFormat = "ddd dd-mmm-yyyy"
+    ws.Range(ws.Cells(CHG_FIRST_ROW, 4), ws.Cells(lastR, 4)).NumberFormat = "ddd dd-mmm-yyyy"
+    ws.Range(ws.Cells(CHG_FIRST_ROW, 5), ws.Cells(lastR, 6)).NumberFormat = "hh:mm"
+    With ws.Range(ws.Cells(CHG_FIRST_ROW, 1), ws.Cells(lastR, 1)).Validation
+        .Delete
+        .Add Type:=xlValidateList, AlertStyle:=xlValidAlertStop, _
+             Formula1:="='" & SH_SHOWS & "'!$A$" & SHOWS_FIRST_ROW & ":$A$" & SHOWS_PREP_LAST_ROW
+        .IgnoreBlank = True
+        .ErrorTitle = "Invalid selection"
+        .ErrorMessage = "Pick a show from the Weekly Shows sheet."
+    End With
+    ApplyList ws.Range(ws.Cells(CHG_FIRST_ROW, 3), ws.Cells(lastR, 3)), "Cancelled,Moved", True
+    ApplyList ws.Range(ws.Cells(CHG_FIRST_ROW, 7), ws.Cells(lastR, 7)), StudioList(), True
+    ws.Range(ws.Cells(1, 1), ws.Cells(4, 8)).Locked = True
+    AddButton ws, ws.Range("J4").Left, ws.Rows(4).Top + 2, 150, 24, "Update Weekly Overview", "RebuildWeeklyOverview"
+End Sub
+
+' Adds the Show Changes sheet to a workbook built before it existed. Keeps all data.
+Public Sub AddShowChangesSheet()
+    Dim ws As Worksheet
+    If Not Sh(SH_CHANGES) Is Nothing Then
+        MsgBox "The '" & SH_CHANGES & "' sheet is already there.", vbInformation, "ZTN"
+        Exit Sub
+    End If
+    Application.ScreenUpdating = False
+    Set ws = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Worksheets(SH_SHOWS))
+    ws.Name = SH_CHANGES
+    BuildShowChanges ws
+    ViewSetup ws, 4, True
+    ProtectSheet ws
+    Application.ScreenUpdating = True
+    MsgBox "'" & SH_CHANGES & "' sheet added.", vbInformation, "ZTN"
+End Sub
+
 Private Sub BuildHowTo(ByVal ws As Worksheet)
     ws.Cells.Font.Name = "Calibri"
     ws.Cells.Font.Size = 10
@@ -560,10 +649,14 @@ Private Sub BuildHowTo(ByVal ws As Worksheet)
         .IndentLevel = 1
     End With
     AddHowRow ws, 22, "Weekly Shows sheet", "List programmes that repeat every week (show, days, start/end, studio). " & _
-        "They appear on the Weekly Overview every week in green, without being entered as bookings."
+        "They appear on the Weekly Overview every week in their studio's colour, without being entered as bookings."
     AddHowRow ws, 23, "Overlaps with a show", "A request that overlaps a regular show in the same studio is NOT rejected. " & _
         "It gets an 'Overlaps regular show' note and the engineer decides whether to approve it. " & _
         "Confirming it records 'Confirmed over regular show ... at engineer's discretion'."
+    AddHowRow ws, 24, "Show Changes sheet", "Cancel or move a regular show for one date only: pick the show, its usual date, " & _
+        "Cancelled or Moved (with the new date, times and studio). The next week it runs at its normal time again."
+    AddHowRow ws, 25, "Ended weeks are locked", "From Monday, last week's bookings and show changes are locked and can't be " & _
+        "edited. Weekly Overview colours: one colour per studio (MCR orange), red = the same studio used twice."
 
     ws.Cells.Locked = True
 End Sub
@@ -755,6 +848,10 @@ Public Sub SubmitBookingForm()
     If studio = "" Then missing = missing & vbLf & "  - Studio requested"
     If Len(missing) > 0 Then
         MsgBox "Please complete the following before submitting:" & missing, vbExclamation, "ZTN Booking"
+        Exit Sub
+    End If
+    If CDate(dt) < Date Then
+        MsgBox "The requested date has already passed.", vbExclamation, "ZTN Booking"
         Exit Sub
     End If
 
@@ -949,11 +1046,18 @@ Public Sub ApplyScheduleChanges()
     Application.ScreenUpdating = False
 
     nNew = AssignMissingRefs(ws)
+    LockEndedWeeks
     For r = SCHED_FIRST_ROW To LastSchedRow(ws)
         If RowHasData(ws, r) Then
             cur = Trim$(SafeStr(ws.Cells(r, C_STATUS).Value))
             prev = Trim$(SafeStr(ws.Cells(r, C_LASTAPPLIED).Value))
-            If StrComp(cur, prev, vbBinaryCompare) <> 0 Then
+            If WeekEnded(ws.Cells(r, C_DATE).Value) And prev <> "" Then
+                ' Ended weeks are locked: undo any status change.
+                If StrComp(cur, prev, vbBinaryCompare) <> 0 Then
+                    SetRowStatus ws, r, prev
+                    StampNote ws, r, "Week has ended " & DashEm() & " schedule locked, change not applied"
+                End If
+            ElseIf StrComp(cur, prev, vbBinaryCompare) <> 0 Then
                 HandleStatusChange r, cur
                 nStatus = nStatus + 1
             ElseIf IsInArray(CanonicalStatus(cur), LiveStatuses()) And _
@@ -1102,8 +1206,27 @@ Public Function FindShowOverlaps(ByVal dt As Variant, ByVal startMin As Long, By
     d0 = ToDateVal(dt)
     If ws Is Nothing Or IsEmpty(d0) Or NormalizeStr(studio) = "" Or endMin <= startMin Then Exit Function
 
+    Dim wsC As Worksheet, cr As Long, sr As Long
+    Set wsC = Sh(SH_CHANGES)
+    ' Shows moved onto this date.
+    If Not wsC Is Nothing Then
+        For cr = CHG_FIRST_ROW To LastChangeRow(wsC)
+            If ChangeIsMove(wsC, cr) Then
+                If CLng(CDate(ToDateVal(wsC.Cells(cr, 4).Value))) = CLng(CDate(d0)) And _
+                   NormalizeStr(SafeStr(wsC.Cells(cr, 7).Value)) = NormalizeStr(studio) Then
+                    s = ToMinutes(wsC.Cells(cr, 5).Value)
+                    e = ToMinutes(wsC.Cells(cr, 6).Value)
+                    sr = FindShowRow(ws, SafeStr(wsC.Cells(cr, 1).Value))
+                    If sr > 0 And s < endMin And startMin < e Then
+                        hits.Add Trim$(SafeStr(ws.Cells(sr, 1).Value)) & " " & Mm(s) & DashEn() & Mm(e)
+                    End If
+                End If
+            End If
+        Next cr
+    End If
+
     For r = SHOWS_FIRST_ROW To LastShowRow(ws)
-        If ShowActiveOn(ws, r, CDate(d0)) Then
+        If ShowActiveOn(ws, r, CDate(d0)) And ShowChangeRow(wsC, SafeStr(ws.Cells(r, 1).Value), CDate(d0)) = 0 Then
             If NormalizeStr(ShowStudio(ws, r)) = NormalizeStr(studio) Then
                 s = ToMinutes(ws.Cells(r, 3).Value)
                 e = ToMinutes(ws.Cells(r, 4).Value)
@@ -1344,6 +1467,7 @@ Public Sub RebuildWeeklyOverview()
     Dim txt() As String, cnt() As Long, studs() As String, clash() As Boolean, owner() As String, booked() As Boolean
     Dim d As Variant, s As Variant, e As Variant, dayIdx As Long, nm As String, stu As String
     Dim shown As Long, showSlots As Long, cell As Range, grid As Range
+    Dim carry() As String, firstStu() As String, mixed() As Boolean, wsC As Worksheet, cr As Long, sr As Long
 
     If Not SheetsReady(True) Then Exit Sub
     ArmSheets
@@ -1364,21 +1488,51 @@ Public Sub RebuildWeeklyOverview()
     ReDim clash(1 To nSlots, 1 To 7)
     ReDim owner(1 To nSlots, 1 To 7)
     ReDim booked(1 To nSlots, 1 To 7)
+    ReDim carry(1 To nSlots, 1 To 7)
+    ReDim firstStu(1 To nSlots, 1 To 7)
+    ReDim mixed(1 To nSlots, 1 To 7)
+    Set wsC = Sh(SH_CHANGES)
+    LockEndedWeeks
 
     ' Regular weekly shows
     For r = SHOWS_FIRST_ROW To LastShowRow(wsH)
         For dayIdx = 0 To 6
             If ShowActiveOn(wsH, r, wkStart + dayIdx) Then
                 nm = Trim$(SafeStr(wsH.Cells(r, 1).Value))
-                stu = ShowStudio(wsH, r)
-                s = ToMinutes(wsH.Cells(r, 3).Value)
-                e = ToMinutes(wsH.Cells(r, 4).Value)
-                showSlots = showSlots + PlaceOnGrid(txt, cnt, studs, clash, owner, booked, b, dayIdx + 1, _
-                    CLng(s), CLng(e), stu, nm & vbLf & Mm(s) & DashEn() & Mm(e) & " " & ChrW(183) & " " & stu, _
-                    ChrW(8627) & " " & nm & " (cont.)", "SHOW" & r, False)
+                ' Cancelled or moved for this date on the Show Changes sheet: placed below instead.
+                If ShowChangeRow(wsC, nm, wkStart + dayIdx) = 0 Then
+                    stu = ShowStudio(wsH, r)
+                    s = ToMinutes(wsH.Cells(r, 3).Value)
+                    e = ToMinutes(wsH.Cells(r, 4).Value)
+                    showSlots = showSlots + PlaceOnGrid(txt, carry, cnt, studs, clash, owner, booked, firstStu, mixed, _
+                        b, dayIdx + 1, CLng(s), CLng(e), stu, _
+                        UCase$(nm) & vbLf & Mm(s) & DashEn() & Mm(e) & " " & ChrW(183) & " " & stu, _
+                        UCase$(nm), "SHOW" & r & "D" & dayIdx, False)
+                End If
             End If
         Next dayIdx
     Next r
+
+    ' Shows moved into this week (Show Changes sheet).
+    If Not wsC Is Nothing Then
+        For cr = CHG_FIRST_ROW To LastChangeRow(wsC)
+            If ChangeIsMove(wsC, cr) Then
+                d = ToDateVal(wsC.Cells(cr, 4).Value)
+                dayIdx = CLng(CDate(d) - wkStart)
+                sr = FindShowRow(wsH, SafeStr(wsC.Cells(cr, 1).Value))
+                If dayIdx >= 0 And dayIdx <= 6 And sr > 0 Then
+                    nm = Trim$(SafeStr(wsH.Cells(sr, 1).Value))
+                    stu = Trim$(SafeStr(wsC.Cells(cr, 7).Value))
+                    s = ToMinutes(wsC.Cells(cr, 5).Value)
+                    e = ToMinutes(wsC.Cells(cr, 6).Value)
+                    showSlots = showSlots + PlaceOnGrid(txt, carry, cnt, studs, clash, owner, booked, firstStu, mixed, _
+                        b, dayIdx + 1, CLng(s), CLng(e), stu, _
+                        UCase$(nm) & vbLf & Mm(s) & DashEn() & Mm(e) & " " & ChrW(183) & " " & stu & " " & ChrW(183) & " moved", _
+                        UCase$(nm), "MOVE" & cr, False)
+                End If
+            End If
+        Next cr
+    End If
 
     ' Confirmed / Completed bookings
     For r = SCHED_FIRST_ROW To LastSchedRow(wsS)
@@ -1390,11 +1544,11 @@ Public Sub RebuildWeeklyOverview()
                 dayIdx = CLng(CDate(d) - wkStart)
                 If dayIdx >= 0 And dayIdx <= 6 And e > s Then
                     stu = SafeStr(wsS.Cells(r, C_STUDIO).Value)
-                    If PlaceOnGrid(txt, cnt, studs, clash, owner, booked, b, dayIdx + 1, CLng(s), CLng(e), stu, _
-                        SafeStr(wsS.Cells(r, C_REF).Value) & " " & ChrW(183) & " " & stu & vbLf & _
-                        SafeStr(wsS.Cells(r, C_TITLE).Value) & vbLf & Mm(s) & DashEn() & Mm(e), _
-                        ChrW(8627) & " " & SafeStr(wsS.Cells(r, C_REF).Value) & " (cont.)", _
-                        "BK" & r, True) > 0 Then shown = shown + 1
+                    nm = UCase$(SafeStr(wsS.Cells(r, C_TITLE).Value))
+                    If PlaceOnGrid(txt, carry, cnt, studs, clash, owner, booked, firstStu, mixed, _
+                        b, dayIdx + 1, CLng(s), CLng(e), stu, _
+                        nm & vbLf & Mm(s) & DashEn() & Mm(e) & " " & ChrW(183) & " " & stu, _
+                        nm, "BK" & r, True) > 0 Then shown = shown + 1
                 End If
             End If
         End If
@@ -1413,13 +1567,15 @@ Public Sub RebuildWeeklyOverview()
         For j = 1 To 7
             If cnt(k, j) > 0 Then
                 Set cell = wsW.Cells(WEEK_FIRST_ROW + k - 1, j + 1)
-                cell.Value = txt(k, j)
+                ' A cell lists what starts in it; only when nothing starts there does it name what carries on.
+                cell.Value = IIf(Len(txt(k, j)) > 0, txt(k, j), carry(k, j))
+                cell.Font.Color = RGB(20, 8, 0)
                 If clash(k, j) Then
-                    cell.Interior.Color = RGB(255, 199, 206)
-                ElseIf booked(k, j) Then
-                    cell.Interior.Color = RGB(221, 235, 247)
+                    cell.Interior.Color = ClashColor()
+                ElseIf mixed(k, j) Then
+                    cell.Interior.Color = RGB(255, 255, 255)
                 Else
-                    cell.Interior.Color = RGB(226, 239, 218)
+                    cell.Interior.Color = StudioColor(firstStu(k, j))
                 End If
             End If
         Next j
@@ -1429,14 +1585,14 @@ Public Sub RebuildWeeklyOverview()
         If wsW.Rows(k).RowHeight < 24 Then wsW.Rows(k).RowHeight = 24
     Next k
 
-    ' Merge consecutive slots that hold one and the same item, like a hand-drawn grid.
+    ' Merge consecutive slots that hold exactly the same items, like a hand-drawn grid.
     For j = 1 To 7
         k = 1
         Do While k <= nSlots
             m = k
-            If cnt(k, j) = 1 Then
+            If cnt(k, j) > 0 Then
                 Do While m < nSlots
-                    If cnt(m + 1, j) <> 1 Or owner(m + 1, j) <> owner(k, j) Then Exit Do
+                    If owner(m + 1, j) <> owner(k, j) Then Exit Do
                     m = m + 1
                 Loop
             End If
@@ -1450,13 +1606,16 @@ Public Sub RebuildWeeklyOverview()
 
     wsW.Cells(WEEK_FIRST_ROW + nSlots, 1).Value = "Week " & Format$(wkStart, "dd-mmm-yyyy") & " " & DashEn() & " " & _
         Format$(wkStart + 6, "dd-mmm-yyyy") & "  " & ChrW(183) & "  " & shown & " booking(s)  " & ChrW(183) & _
-        "  regular shows from the Weekly Shows sheet  " & ChrW(183) & "  refreshed " & Format$(Now, "dd-mmm hh:mm")
+        "  regular shows from Weekly Shows and Show Changes  " & ChrW(183) & "  refreshed " & Format$(Now, "dd-mmm hh:mm")
 End Sub
 
 ' Adds one item to every overview slot it touches. Returns the number of slots used.
 ' A cell is flagged as a clash when the same studio appears in it twice.
-Private Function PlaceOnGrid(ByRef txt() As String, ByRef cnt() As Long, ByRef studs() As String, _
-                             ByRef clash() As Boolean, ByRef owner() As String, ByRef booked() As Boolean, _
+' txt = items that start in the slot, carry = items carrying on from above.
+' owner holds every item key in the slot, so slots with the same items can merge.
+Private Function PlaceOnGrid(ByRef txt() As String, ByRef carry() As String, ByRef cnt() As Long, _
+                             ByRef studs() As String, ByRef clash() As Boolean, ByRef owner() As String, _
+                             ByRef booked() As Boolean, ByRef firstStu() As String, ByRef mixed() As Boolean, _
                              ByVal b As Variant, ByVal dayCol As Long, ByVal s As Long, ByVal e As Long, _
                              ByVal studio As String, ByVal firstTxt As String, ByVal contTxt As String, _
                              ByVal key As String, ByVal isBooking As Boolean) As Long
@@ -1465,10 +1624,20 @@ Private Function PlaceOnGrid(ByRef txt() As String, ByRef cnt() As Long, ByRef s
     stuKey = "|" & NormalizeStr(studio) & "|"
     For k = 1 To UBound(b) - LBound(b)
         If s < b(LBound(b) + k) And e > b(LBound(b) + k - 1) Then
-            If cnt(k, dayCol) > 0 Then txt(k, dayCol) = txt(k, dayCol) & sep
-            txt(k, dayCol) = txt(k, dayCol) & IIf(n = 0, firstTxt, contTxt)
+            If n = 0 Then
+                If Len(txt(k, dayCol)) > 0 Then txt(k, dayCol) = txt(k, dayCol) & sep
+                txt(k, dayCol) = txt(k, dayCol) & firstTxt
+            Else
+                If Len(carry(k, dayCol)) > 0 Then carry(k, dayCol) = carry(k, dayCol) & sep
+                carry(k, dayCol) = carry(k, dayCol) & contTxt
+            End If
+            If cnt(k, dayCol) = 0 Then
+                firstStu(k, dayCol) = studio
+            ElseIf NormalizeStr(studio) <> NormalizeStr(firstStu(k, dayCol)) Then
+                mixed(k, dayCol) = True
+            End If
             cnt(k, dayCol) = cnt(k, dayCol) + 1
-            owner(k, dayCol) = IIf(cnt(k, dayCol) = 1, key, "")
+            owner(k, dayCol) = owner(k, dayCol) & "|" & key
             If InStr(studs(k, dayCol), stuKey) > 0 Then clash(k, dayCol) = True
             studs(k, dayCol) = studs(k, dayCol) & stuKey
             If isBooking Then booked(k, dayCol) = True
@@ -1477,6 +1646,96 @@ Private Function PlaceOnGrid(ByRef txt() As String, ByRef cnt() As Long, ByRef s
     Next k
     PlaceOnGrid = n
 End Function
+
+' Studio colours for the Weekly Overview (same as the website). Red is kept for clashes.
+Public Function StudioColor(ByVal studio As String) As Long
+    Select Case NormalizeStr(studio)
+        Case NormalizeStr("Studio 1"): StudioColor = RGB(207, 226, 247)
+        Case NormalizeStr("Studio 2"): StudioColor = RGB(212, 237, 204)
+        Case NormalizeStr("Audio Studio"): StudioColor = RGB(229, 216, 243)
+        Case NormalizeStr("MCR"): StudioColor = RGB(255, 77, 0)
+        Case Else: StudioColor = RGB(227, 230, 235)
+    End Select
+End Function
+
+Public Function ClashColor() As Long
+    ClashColor = RGB(255, 199, 206)
+End Function
+
+'===============================================================================
+'  SHOW CHANGES (one week only) AND ENDED-WEEK LOCK
+'===============================================================================
+Private Function LastChangeRow(ByVal ws As Worksheet) As Long
+    LastChangeRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    If LastChangeRow < CHG_FIRST_ROW Then LastChangeRow = CHG_FIRST_ROW - 1
+End Function
+
+' Row on Show Changes for this show on its usual date (0 = none). Only complete rows count.
+Private Function ShowChangeRow(ByVal ws As Worksheet, ByVal showName As String, ByVal d As Date) As Long
+    Dim r As Long, ud As Variant, act As String
+    If ws Is Nothing Then Exit Function
+    For r = CHG_FIRST_ROW To LastChangeRow(ws)
+        If NormalizeStr(SafeStr(ws.Cells(r, 1).Value)) = NormalizeStr(showName) Then
+            ud = ToDateVal(ws.Cells(r, 2).Value)
+            If Not IsEmpty(ud) Then
+                If CLng(CDate(ud)) = CLng(d) Then
+                    act = LCase$(Trim$(SafeStr(ws.Cells(r, 3).Value)))
+                    If act = "cancelled" Or ChangeIsMove(ws, r) Then ShowChangeRow = r: Exit Function
+                End If
+            End If
+        End If
+    Next r
+End Function
+
+' A complete "Moved" row: new date, start, end (after start) and studio.
+Private Function ChangeIsMove(ByVal ws As Worksheet, ByVal r As Long) As Boolean
+    Dim nd As Variant, s As Variant, e As Variant
+    If LCase$(Trim$(SafeStr(ws.Cells(r, 3).Value))) <> "moved" Then Exit Function
+    If IsEmpty(ToDateVal(ws.Cells(r, 2).Value)) Then Exit Function
+    nd = ToDateVal(ws.Cells(r, 4).Value)
+    s = ToMinutes(ws.Cells(r, 5).Value)
+    e = ToMinutes(ws.Cells(r, 6).Value)
+    If IsEmpty(nd) Or IsEmpty(s) Or IsEmpty(e) Then Exit Function
+    If e <= s Or Trim$(SafeStr(ws.Cells(r, 7).Value)) = "" Then Exit Function
+    ChangeIsMove = True
+End Function
+
+Private Function FindShowRow(ByVal ws As Worksheet, ByVal showName As String) As Long
+    Dim r As Long
+    For r = SHOWS_FIRST_ROW To LastShowRow(ws)
+        If NormalizeStr(SafeStr(ws.Cells(r, 1).Value)) = NormalizeStr(showName) Then FindShowRow = r: Exit Function
+    Next r
+End Function
+
+' True when the date falls in a week that has ended (before this Monday).
+Public Function WeekEnded(ByVal v As Variant) As Boolean
+    Dim d As Variant
+    d = ToDateVal(v)
+    If IsEmpty(d) Then Exit Function
+    WeekEnded = CDate(d) < MondayOf(Date)
+End Function
+
+' Locks bookings and show changes in weeks that have ended, so they can't be edited.
+Public Sub LockEndedWeeks()
+    Dim ws As Worksheet, r As Long, ended As Boolean
+    Set ws = Sh(SH_SCHED)
+    If Not ws Is Nothing Then
+        For r = SCHED_FIRST_ROW To LastSchedRow(ws)
+            If RowHasData(ws, r) Then
+                ended = WeekEnded(ws.Cells(r, C_DATE).Value)
+                ws.Range(ws.Cells(r, C_REF), ws.Cells(r, C_DATE)).Locked = ended
+                ws.Range(ws.Cells(r, C_START), ws.Cells(r, C_NOTES)).Locked = ended
+            End If
+        Next r
+    End If
+    Set ws = Sh(SH_CHANGES)
+    If Not ws Is Nothing Then
+        For r = CHG_FIRST_ROW To LastChangeRow(ws)
+            ended = WeekEnded(ws.Cells(r, 2).Value) Or WeekEnded(ws.Cells(r, 4).Value)
+            ws.Range(ws.Cells(r, 1), ws.Cells(r, 8)).Locked = ended
+        Next r
+    End If
+End Sub
 
 '===============================================================================
 '  SCHEDULE HELPERS
@@ -1625,7 +1884,7 @@ End Function
 
 Private Sub ArmSheets()
     Dim nm As Variant, ws As Worksheet
-    For Each nm In Array(SH_FORM, SH_SCHED, SH_WEEK, SH_SHOWS, SH_HOWTO)
+    For Each nm In Array(SH_FORM, SH_SCHED, SH_WEEK, SH_SHOWS, SH_CHANGES, SH_HOWTO)
         Set ws = Sh(CStr(nm))
         If Not ws Is Nothing Then ProtectSheet ws
     Next nm
