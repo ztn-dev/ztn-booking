@@ -94,7 +94,7 @@
           <button class="btn" id="weekCsvBtn">Download week (Excel/CSV)</button>
           <button class="btn" id="weekPrintBtn">Print / Save as PDF</button>
         </div>
-        <div class="legend"><span><i class="st-studio-1"></i>Studio 1</span><span><i class="st-studio-2"></i>Studio 2</span><span><i class="st-audio-studio"></i>Audio Studio</span><span><i class="st-mcr"></i>MCR</span><span><i class="st-other"></i>Other</span><span><i class="l-clash"></i>Same studio used twice</span><span>Tip: click an empty slot to add a programme, or click a regular show to cancel or move it for that week.</span></div>
+        <div class="legend"><span><i class="st-studio-1"></i>Studio 1</span><span><i class="st-studio-2"></i>Studio 2</span><span><i class="st-audio-studio"></i>Audio Studio</span><span><i class="st-mcr"></i>MCR</span><span><i class="st-other"></i>Other</span><span><i class="l-clash"></i>Same studio used twice</span><span>Tip: click an empty slot to add a programme. Click a regular show to cancel or move it for that week, or a booked programme to change, reschedule or cancel it.</span></div>
         <div id="weekLocked" class="notice warn" hidden>This week has ended, so it's locked: nothing can be added or changed. It shows the schedule as saved on Sunday night.</div>
         <div class="table-wrap" id="weekGrid"></div>
         <div class="show-changes" id="weekChanges"></div>
@@ -594,6 +594,7 @@
       if (res.data.status !== wanted) toast(`${res.data.ref} saved as ${res.data.status} — ${lastNote(res.data.notes)}`, 'bad', 8000);
       else toast(`${res.data.ref} saved`, 'ok');
       load();
+      if (!$('tab-week').hidden) loadWeek();
     }
 
     async function deleteBooking() {
@@ -603,6 +604,7 @@
       $('edit').close();
       toast(`${editing.ref} deleted`, 'ok');
       load();
+      if (!$('tab-week').hidden) loadWeek();
     }
 
     async function recheck() {
@@ -863,6 +865,16 @@
       } else {
         $('weekGrid').querySelectorAll('.bk[data-show-id]').forEach((el) => el.removeAttribute('data-show-id'));
       }
+      // Booked programmes open the booking editor (read-only once the week has ended).
+      $('weekGrid').querySelectorAll('.bk[data-booking-ref]').forEach((el) => {
+        el.title = ended ? 'Click to view this booking' : 'Click to change, reschedule or cancel this booking';
+        el.onclick = async (ev) => {
+          ev.stopPropagation();
+          const { data, error } = await db.from('bookings').select('*').eq('ref', el.dataset.bookingRef).single();
+          if (error) return toast(`Could not open the booking: ${errMsg(error)}`, 'bad');
+          openEditor(data);
+        };
+      });
       loadWeekChanges(ended);
       $('weekGrid').querySelectorAll('td[data-slot]').forEach((td) => {
         if (ended || td.classList.contains('filled')) return;

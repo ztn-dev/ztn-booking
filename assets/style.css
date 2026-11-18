@@ -179,8 +179,8 @@ table.week tr.now th.slot { background: #f5c542; color: #1b2333; }
 .bk-time { color: var(--muted); font-variant-numeric: tabular-nums; }
 .bk.cont { color: var(--muted); text-transform: uppercase; }
 .bk.done { opacity: .65; }
-#weekGrid .bk[data-show-id] { cursor: pointer; }
-#weekGrid .bk[data-show-id]:hover .bk-title { text-decoration: underline; }
+#weekGrid .bk[data-show-id], #weekGrid .bk[data-booking-ref] { cursor: pointer; }
+#weekGrid .bk[data-show-id]:hover .bk-title, #weekGrid .bk[data-booking-ref]:hover .bk-title { text-decoration: underline; }
 .show-changes { margin-top: 12px; }
 .show-changes li { margin: 4px 0; }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .85rem; color: var(--muted); margin: 0 0 10px; }
