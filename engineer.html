@@ -94,9 +94,10 @@
           <button class="btn" id="weekCsvBtn">Download week (Excel/CSV)</button>
           <button class="btn" id="weekPrintBtn">Print / Save as PDF</button>
         </div>
-        <div class="legend"><span><i class="st-studio-1"></i>Studio 1</span><span><i class="st-studio-2"></i>Studio 2</span><span><i class="st-audio-studio"></i>Audio Studio</span><span><i class="st-mcr"></i>MCR</span><span><i class="st-other"></i>Other</span><span><i class="l-clash"></i>Same studio used twice</span><span>Tip: click an empty slot to add a programme there.</span></div>
+        <div class="legend"><span><i class="st-studio-1"></i>Studio 1</span><span><i class="st-studio-2"></i>Studio 2</span><span><i class="st-audio-studio"></i>Audio Studio</span><span><i class="st-mcr"></i>MCR</span><span><i class="st-other"></i>Other</span><span><i class="l-clash"></i>Same studio used twice</span><span>Tip: click an empty slot to add a programme, or click a regular show to cancel or move it for that week.</span></div>
         <div id="weekLocked" class="notice warn" hidden>This week has ended, so it's locked: nothing can be added or changed. It shows the schedule as saved on Sunday night.</div>
         <div class="table-wrap" id="weekGrid"></div>
+        <div class="show-changes" id="weekChanges"></div>
       </div>
       <div id="tab-audit" hidden>
         <p class="count" style="margin:0 0 10px">Who did what: every change to bookings, weekly shows, engineers, settings and archives, plus sign-ins, downloads and prints. Entries are written by the system and cannot be edited or deleted.</p>
@@ -209,6 +210,36 @@
         <div class="actions">
           <button class="btn" value="cancel" formnovalidate>Cancel</button>
           <button class="btn primary" type="submit" value="save">Add</button>
+        </div>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="showDay" style="width:min(560px,calc(100vw - 32px))">
+    <form method="dialog" id="showDayForm">
+      <header><h3 id="showDayTitle">Show</h3><button class="btn" value="cancel" formnovalidate aria-label="Close">&#x2715;</button></header>
+      <div class="body">
+        <p class="count" id="showDayUsual" style="margin-top:0"></p>
+        <div class="checks" style="margin-bottom:12px">
+          <label><input type="radio" name="act" value="normal"> Runs as normal</label>
+          <label><input type="radio" name="act" value="cancel"> Cancelled this week</label>
+          <label><input type="radio" name="act" value="move"> Moved / postponed this week</label>
+        </div>
+        <div class="grid" id="showDayMove">
+          <label class="field"><span>New date *</span><input name="new_date" type="date"></label>
+          <label class="field"><span>Start *</span><input name="new_start" type="time" step="300"></label>
+          <label class="field"><span>End *</span><input name="new_end" type="time" step="300"></label>
+          <label class="field"><span>Studio</span><select name="new_studio"></select></label>
+        </div>
+        <label class="field" style="margin-top:12px"><span>Note (optional)</span><input name="note" maxlength="500" placeholder="e.g. presenter away, live event"></label>
+        <p class="count" style="margin:12px 0 0">Only affects this date. The following week the show is back at its normal time.</p>
+        <div id="showDayError" class="notice bad" style="margin:12px 0 0" hidden></div>
+      </div>
+      <footer>
+        <button class="btn" type="button" id="showDayAllWeeks">Edit the weekly show (all weeks)…</button>
+        <div class="actions">
+          <button class="btn" value="cancel" formnovalidate>Cancel</button>
+          <button class="btn primary" type="submit" value="save">Save</button>
         </div>
       </footer>
     </form>
@@ -403,6 +434,9 @@
         liveRange(f, t).then((d) => printWeek(d, w)).catch((e) => { w?.close(); toast(e.message, 'bad'); });
       };
       $('editForm').addEventListener('submit', saveEditor);
+      $('showDayForm').addEventListener('submit', saveShowDay);
+      $('showDayForm').querySelectorAll('input[name="act"]').forEach((r) => (r.onchange = showDayKind));
+      $('showDayAllWeeks').onclick = () => { $('showDay').close(); openShow(showDay.show); };
       $('deleteBtn').onclick = deleteBooking;
       const sf = $('showForm');
       sf.studio.innerHTML = opts(STUDIOS);
@@ -821,6 +855,15 @@
       const ended = weekStart < weekOpen();
       $('weekLocked').hidden = !ended;
       $('quickAddBtn').disabled = ended;
+      if (!ended) {
+        $('weekGrid').querySelectorAll('.bk[data-show-id]').forEach((el) => {
+          el.title = 'Click to cancel or move this show for this week';
+          el.onclick = (ev) => { ev.stopPropagation(); openShowDay(Number(el.dataset.showId), el.dataset.showDate); };
+        });
+      } else {
+        $('weekGrid').querySelectorAll('.bk[data-show-id]').forEach((el) => el.removeAttribute('data-show-id'));
+      }
+      loadWeekChanges(ended);
       $('weekGrid').querySelectorAll('td[data-slot]').forEach((td) => {
         if (ended || td.classList.contains('filled')) return;
         td.classList.add('addable');
@@ -831,6 +874,90 @@
           openQuickAdd(addDays(weekStart, d), start, Math.min(SLOT_BOUNDS[k + 1], start + 30));
         };
       });
+    }
+
+    // ---- One week only: cancel or move a regular show ----
+    let showDay = null; // { show, date, change }
+
+    async function loadWeekChanges(ended) {
+      const end = addDays(weekStart, 6);
+      const { data, error } = await db.from('show_changes').select('*, weekly_shows(name)')
+        .or(`and(show_date.gte.${weekStart},show_date.lte.${end}),and(new_date.gte.${weekStart},new_date.lte.${end})`)
+        .order('show_date');
+      if (error || !data?.length) { $('weekChanges').innerHTML = ''; return; }
+      $('weekChanges').innerHTML = `<h4 style="margin:0 0 4px">Show changes this week</h4><ul style="margin:0;padding-left:18px">${data.map((c) => {
+        const name = esc(c.weekly_shows?.name || 'Show');
+        const what = c.action === 'cancel' ? `cancelled on ${esc(dayName(c.show_date))} ${fmtDate(c.show_date)}`
+          : `moved from ${esc(dayName(c.show_date))} ${fmtDate(c.show_date)} to ${esc(dayName(c.new_date))} ${fmtDate(c.new_date)} ${hm(c.new_start)}–${hm(c.new_end)}, ${esc(c.new_studio)}`;
+        return `<li><strong>${name}</strong> ${what}${c.note ? ` <small class="count">(${esc(c.note)})</small>` : ''}
+          ${ended ? '' : ` <button class="linkish" data-change-edit="${c.show_id}|${c.show_date}">Change</button> · <button class="linkish" data-change-undo="${c.id}">Back to normal</button>`}</li>`;
+      }).join('')}</ul>`;
+      $('weekChanges').querySelectorAll('[data-change-edit]').forEach((b) => (b.onclick = () => {
+        const [id, date] = b.dataset.changeEdit.split('|'); openShowDay(Number(id), date);
+      }));
+      $('weekChanges').querySelectorAll('[data-change-undo]').forEach((b) => (b.onclick = async () => {
+        const { error: e } = await db.from('show_changes').delete().eq('id', b.dataset.changeUndo);
+        if (e) return toast(`Could not undo: ${errMsg(e)}`, 'bad');
+        toast('Show is back to its normal time', 'ok');
+        loadWeek();
+      }));
+    }
+
+    async function openShowDay(showId, date) {
+      const [{ data: show, error }, { data: change }] = await Promise.all([
+        db.from('weekly_shows').select('*').eq('id', showId).single(),
+        db.from('show_changes').select('*').eq('show_id', showId).eq('show_date', date).maybeSingle(),
+      ]);
+      if (error) return toast(`Could not open the show: ${errMsg(error)}`, 'bad');
+      showDay = { show, date, change };
+      const f = $('showDayForm');
+      f.reset();
+      $('showDayError').hidden = true;
+      f.new_studio.innerHTML = opts(STUDIOS);
+      $('showDayTitle').textContent = `${show.name} — ${dayName(date)} ${fmtDate(date)}`;
+      $('showDayUsual').textContent = `Normally ${daysLabel(show.days)}, ${hm(show.start_time)}–${hm(show.end_time)}, ${show.studio}.`;
+      f.act.value = change ? change.action : 'normal';
+      f.new_date.value = change?.new_date || date;
+      f.new_start.value = hm(change?.new_start || show.start_time);
+      f.new_end.value = hm(change?.new_end || show.end_time);
+      f.new_studio.value = change?.new_studio || show.studio;
+      f.note.value = change?.note || '';
+      f.new_date.min = weekOpen();
+      showDayKind();
+      $('showDay').showModal();
+    }
+
+    function showDayKind() {
+      const f = $('showDayForm');
+      $('showDayMove').hidden = f.act.value !== 'move';
+      f.note.closest('label').hidden = f.act.value === 'normal';
+    }
+
+    async function saveShowDay(ev) {
+      if (ev.submitter?.value !== 'save') return;
+      ev.preventDefault();
+      const f = $('showDayForm');
+      const fail = (msg) => { $('showDayError').textContent = msg; $('showDayError').hidden = false; };
+      const { show, date, change } = showDay;
+      let res;
+      if (f.act.value === 'normal') {
+        res = change ? await db.from('show_changes').delete().eq('id', change.id) : { error: null };
+      } else {
+        const row = { show_id: show.id, show_date: date, action: f.act.value, note: f.note.value.trim(),
+          new_date: null, new_start: null, new_end: null, new_studio: null };
+        if (f.act.value === 'move') {
+          if (!f.new_date.value || !f.new_start.value || !f.new_end.value) return fail('Fill in the new date, start and end.');
+          if (f.new_end.value <= f.new_start.value) return fail('End must be later than start.');
+          Object.assign(row, { new_date: f.new_date.value, new_start: f.new_start.value, new_end: f.new_end.value, new_studio: f.new_studio.value });
+        }
+        res = await db.from('show_changes').upsert(row, { onConflict: 'show_id,show_date' });
+      }
+      if (res.error) return fail(`Could not save: ${errMsg(res.error)}`);
+      $('showDay').close();
+      toast(f.act.value === 'normal' ? `${show.name} runs as normal on ${fmtDate(date)}`
+        : f.act.value === 'cancel' ? `${show.name} cancelled for ${fmtDate(date)} only`
+        : `${show.name} moved to ${fmtDate(f.new_date.value)} ${f.new_start.value} (this week only)`, 'ok');
+      loadWeek();
     }
 
     // Quick add from the week view: a confirmed one-off programme or a weekly show.

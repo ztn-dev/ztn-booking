@@ -163,19 +163,54 @@ language sql stable security definer set search_path = public as $$
     and least(coalesce(p_setup, p_start), p_start) < b.end_time
 $$;
 
+-- ------------------------------------------------- one-off show changes --
+-- A weekly show can be cancelled or moved for one date only. The next week
+-- it runs at its normal time again. show_date is the date it would normally run.
+create table if not exists public.show_changes (
+  id          bigint generated always as identity primary key,
+  show_id     bigint not null references public.weekly_shows (id) on delete cascade,
+  show_date   date not null,
+  action      text not null check (action in ('cancel', 'move')),
+  new_date    date,
+  new_start   time,
+  new_end     time,
+  new_studio  text check (new_studio in ('Studio 1','Studio 2','Audio Studio','MCR','Other')),
+  note        text not null default '' check (length(note) <= 500),
+  created_at  timestamptz not null default now(),
+  unique (show_id, show_date),
+  check (action = 'cancel' or (new_date is not null and new_start is not null and new_end is not null
+                               and new_studio is not null and new_end > new_start
+                               and new_date between show_date - 60 and show_date + 60))
+);
+
+-- Every show slot between two dates, after one-off changes: cancelled ones are
+-- left out and moved ones appear on their new date, time and studio.
+create or replace function public.show_occurrences(p_from date, p_to date)
+returns table (show_id bigint, show_date date, occ_date date, start_time time, end_time time,
+               studio text, title text, moved boolean)
+language sql stable security definer set search_path = public as $$
+  select s.id, d::date, coalesce(c.new_date, d::date), coalesce(c.new_start, s.start_time),
+         coalesce(c.new_end, s.end_time), coalesce(c.new_studio, s.studio), s.name, c.id is not null
+    from public.weekly_shows s
+    cross join generate_series(p_from - 60, p_to + 60, interval '1 day') d
+    left join public.show_changes c on c.show_id = s.id and c.show_date = d::date
+   where extract(isodow from d)::smallint = any (s.days)
+     and (s.active_from is null or d::date >= s.active_from)
+     and (s.active_to is null or d::date <= s.active_to)
+     and c.action is distinct from 'cancel'
+     and coalesce(c.new_date, d::date) between p_from and p_to
+$$;
+
 -- Regular shows on that date/studio overlapping the slot, as 'NAME 19:00–19:30'.
 -- These never block a booking: the engineer decides.
 create or replace function public.find_show_overlaps(
   p_date date, p_start time, p_end time, p_setup time, p_studio text)
 returns text[]
 language sql stable security definer set search_path = public as $$
-  select coalesce(array_agg(s.name || ' ' || to_char(s.start_time, 'HH24:MI') || chr(8211)
-                            || to_char(s.end_time, 'HH24:MI') order by s.start_time, s.name), '{}')
-  from public.weekly_shows s
+  select coalesce(array_agg(s.title || ' ' || to_char(s.start_time, 'HH24:MI') || chr(8211)
+                            || to_char(s.end_time, 'HH24:MI') order by s.start_time, s.title), '{}')
+  from public.show_occurrences(p_date, p_date) s
   where s.studio = p_studio
-    and extract(isodow from p_date)::smallint = any (s.days)
-    and (s.active_from is null or p_date >= s.active_from)
-    and (s.active_to is null or p_date <= s.active_to)
     and s.start_time < p_end
     and least(coalesce(p_setup, p_start), p_start) < s.end_time
 $$;
@@ -416,6 +451,28 @@ drop trigger if exists bookings_changed on public.bookings;
 create trigger bookings_changed after insert or update or delete on public.bookings
   for each statement execute function public.schedule_changed();
 
+-- One-off show changes in an ended week are locked too (same rule as bookings).
+create or replace function public.show_changes_lock_past() returns trigger
+language plpgsql set search_path = public as $$
+declare
+  v_open date := public.ztn_week_open();
+begin
+  if session_user = 'authenticator'
+     and ((tg_op <> 'INSERT' and (old.show_date < v_open or old.new_date < v_open))
+       or (tg_op <> 'DELETE' and (new.show_date < v_open or new.new_date < v_open))) then
+    raise exception 'That week has ended and its schedule is locked';
+  end if;
+  return case when tg_op = 'DELETE' then old else new end;
+end $$;
+
+drop trigger if exists show_changes_lock_past on public.show_changes;
+create trigger show_changes_lock_past before insert or update or delete on public.show_changes
+  for each row execute function public.show_changes_lock_past();
+
+drop trigger if exists show_changes_changed on public.show_changes;
+create trigger show_changes_changed after insert or update or delete on public.show_changes
+  for each statement execute function public.schedule_changed();
+
 drop trigger if exists weekly_shows_changed on public.weekly_shows;
 create trigger weekly_shows_changed after insert or update or delete on public.weekly_shows
   for each statement execute function public.schedule_changed();
@@ -489,12 +546,9 @@ language sql stable security definer set search_path = public as $$
      where b.booking_date = p_date and b.studio = p_studio
        and b.status = any (public.ztn_blocking())
     union all
-    select s.start_time, s.end_time, 'Show', s.name
-      from public.weekly_shows s
+    select s.start_time, s.end_time, 'Show', s.title
+      from public.show_occurrences(p_date, p_date) s
      where s.studio = p_studio
-       and extract(isodow from p_date)::smallint = any (s.days)
-       and (s.active_from is null or p_date >= s.active_from)
-       and (s.active_to is null or p_date <= s.active_to)
   ) x
   order by 1, 2
 $$;
@@ -504,7 +558,7 @@ $$;
 drop function if exists public.week_overview(date, text);
 create or replace function public.week_overview(p_start date, p_key text default null)
 returns table (kind text, ref text, booking_date date, start_time time, end_time time,
-               studio text, title text, status text)
+               studio text, title text, status text, show_id bigint, show_date date)
 language plpgsql stable security definer set search_path = public as $$
 declare
   v_key text;
@@ -522,11 +576,11 @@ begin
     return query
       select x.* from (
         select 'show'::text, null::text, (j->>'date')::date, (j->>'start')::time, (j->>'end')::time,
-               j->>'studio', j->>'title', 'Show'::text
+               j->>'studio', j->>'title', 'Show'::text, null::bigint, null::date
           from jsonb_array_elements(v_arch->'shows') j
         union all
         select 'booking'::text, j->>'ref', (j->>'date')::date, (j->>'start')::time, (j->>'end')::time,
-               j->>'studio', j->>'title', j->>'status'
+               j->>'studio', j->>'title', j->>'status', null::bigint, null::date
           from jsonb_array_elements(v_arch->'bookings') j
          where j->>'status' = any (public.ztn_firm())
       ) x
@@ -535,15 +589,12 @@ begin
   end if;
   return query
     select x.* from (
-      select 'show'::text as kind, null::text as ref, d::date as booking_date, s.start_time, s.end_time,
-             s.studio, s.name as title, 'Show'::text as status
-        from public.weekly_shows s
-        cross join generate_series(p_start, p_start + 6, interval '1 day') d
-       where extract(isodow from d)::smallint = any (s.days)
-         and (s.active_from is null or d::date >= s.active_from)
-         and (s.active_to is null or d::date <= s.active_to)
+      select 'show'::text as kind, null::text as ref, s.occ_date as booking_date, s.start_time, s.end_time,
+             s.studio, s.title, (case when s.moved then 'Moved' else 'Show' end)::text as status, s.show_id, s.show_date
+        from public.show_occurrences(p_start, p_start + 6) s
       union all
-      select 'booking'::text, b.ref, b.booking_date, b.start_time, b.end_time, b.studio, b.title, b.status
+      select 'booking'::text, b.ref, b.booking_date, b.start_time, b.end_time, b.studio, b.title, b.status,
+             null::bigint, null::date
         from public.bookings b
        where b.status = any (public.ztn_firm())
          and b.booking_date between p_start and p_start + 6
@@ -618,15 +669,13 @@ declare
   r public.weekly_archives;
 begin
   perform set_config('ztn.actor', 'Automatic (weekly archive)', true);
-  select coalesce(jsonb_agg(jsonb_build_object(
-           'date', d::date, 'start', to_char(s.start_time, 'HH24:MI'), 'end', to_char(s.end_time, 'HH24:MI'),
-           'studio', s.studio, 'title', s.name) order by d, s.start_time, s.name), '[]')
+  select coalesce(jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
+           'date', s.occ_date, 'start', to_char(s.start_time, 'HH24:MI'), 'end', to_char(s.end_time, 'HH24:MI'),
+           'studio', s.studio, 'title', s.title,
+           'moved_from', case when s.moved then s.show_date end))
+           order by s.occ_date, s.start_time, s.title), '[]')
     into v_shows
-    from public.weekly_shows s
-    cross join generate_series(v_start, v_start + 6, interval '1 day') d
-   where extract(isodow from d)::smallint = any (s.days)
-     and (s.active_from is null or d::date >= s.active_from)
-     and (s.active_to is null or d::date <= s.active_to);
+    from public.show_occurrences(v_start, v_start + 6) s;
 
   select coalesce(jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
            'ref', b.ref, 'date', b.booking_date, 'start', to_char(b.start_time, 'HH24:MI'), 'end', to_char(b.end_time, 'HH24:MI'),
@@ -736,6 +785,17 @@ begin
     when 'weekly_shows' then
       v_type := 'Weekly show';
       v_target := v_row ->> 'name';
+    when 'show_changes' then
+      v_type := 'Show change';
+      select name into v_target from public.weekly_shows where id = (v_row ->> 'show_id')::bigint;
+      v_target := coalesce(v_target, 'Deleted show') || ' ' || chr(8212) || ' ' || (v_row ->> 'show_date');
+      v_action := case when tg_op = 'DELETE' then 'Back to normal'
+                       when v_row ->> 'action' = 'cancel' then 'Cancelled for this date'
+                       else 'Moved for this date' end;
+      if v_row ->> 'action' = 'move' and tg_op <> 'DELETE' then
+        v_summary := 'To ' || (v_row ->> 'new_date') || ' ' || left(v_row ->> 'new_start', 5) || chr(8211)
+                     || left(v_row ->> 'new_end', 5) || ', ' || (v_row ->> 'new_studio');
+      end if;
     when 'engineers' then
       v_type := 'Engineer';
       select email into v_target from auth.users where id = (v_row ->> 'user_id')::uuid;
@@ -763,6 +823,9 @@ create trigger bookings_audit after insert or update or delete on public.booking
   for each row execute function public.audit_row();
 drop trigger if exists weekly_shows_audit on public.weekly_shows;
 create trigger weekly_shows_audit after insert or update or delete on public.weekly_shows
+  for each row execute function public.audit_row();
+drop trigger if exists show_changes_audit on public.show_changes;
+create trigger show_changes_audit after insert or update or delete on public.show_changes
   for each row execute function public.audit_row();
 drop trigger if exists engineers_audit on public.engineers;
 create trigger engineers_audit after insert or update or delete on public.engineers
@@ -824,6 +887,11 @@ create policy "engineers manage shows" on public.weekly_shows for all to authent
   using (public.is_engineer()) with check (public.is_engineer());
 
 -- Audit trail: engineers can read; only the database writes to it.
+alter table public.show_changes enable row level security;
+drop policy if exists "engineers manage show changes" on public.show_changes;
+create policy "engineers manage show changes" on public.show_changes for all to authenticated
+  using (public.is_engineer()) with check (public.is_engineer());
+
 alter table public.audit_log enable row level security;
 drop policy if exists "engineers read audit log" on public.audit_log;
 create policy "engineers read audit log" on public.audit_log for select to authenticated using (public.is_engineer());
@@ -849,6 +917,8 @@ revoke all on function public.find_show_overlaps(date, time, time, time, text) f
 revoke all on function public._close_completed() from public, anon, authenticated;
 revoke all on function public.bookings_before() from public, anon, authenticated;
 revoke all on function public.bookings_lock_past() from public, anon, authenticated;
+revoke all on function public.show_changes_lock_past() from public, anon, authenticated;
+revoke all on function public.show_occurrences(date, date) from public, anon;
 revoke all on function public.bookings_after() from public, anon, authenticated;
 revoke all on function public.bookings_notify() from public, anon, authenticated;
 revoke all on function public.engineer_emails() from public, anon, authenticated;

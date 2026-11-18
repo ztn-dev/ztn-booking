@@ -171,7 +171,10 @@ export function weekGridHTML(rows, weekStart, { now = null } = {}) {
     if (!(e > s)) continue;
     const key = ++seq;
     const st = studioClass(b.studio);
-    const first = `<div class="bk ${st}${b.status === 'Completed' ? ' done' : ''}"><div class="bk-title">${esc(b.title)}</div><div class="bk-time">${mm(s)}–${mm(e)} · ${esc(b.studio)}</div></div>`;
+    // Shows carry their id and usual date so engineers can change one week.
+    const ids = isShow && b.show_id ? ` data-show-id="${b.show_id}" data-show-date="${b.show_date}"` : '';
+    const moved = b.status === 'Moved' ? ' · moved' : '';
+    const first = `<div class="bk ${st}${b.status === 'Completed' ? ' done' : ''}"${ids}><div class="bk-title">${esc(b.title)}</div><div class="bk-time">${mm(s)}–${mm(e)} · ${esc(b.studio)}${moved}</div></div>`;
     const cont = `<div class="bk cont ${st}">${esc(b.title)}</div>`;
     let n = 0;
     for (let k = 0; k < slots; k++) {

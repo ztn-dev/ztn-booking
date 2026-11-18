@@ -102,6 +102,7 @@ When `SMTP_PASSWORD` is set, the function sends through SMTP (port 465); otherwi
 
 ## Day to day
 
+- **Cancel or move a show for one week:** in **Week view**, click the regular show and choose *Cancelled this week* or *Moved / postponed this week* (new date, time, studio). Only that date changes; the next week it's back at its normal time. Changes are listed under the grid, with *Back to normal* to undo.
 - **Weekly shows:** open the Engineers page, then the **Weekly shows** tab, to add or edit them. When a programme ends, set **Active to** rather than deleting it.
 - **Approvals:** change the Status drop-down in the Schedule tab. Declining or cancelling asks for a reason, which is emailed to the requester.
 - **Weekly archive:** in **Week view**, **Download week (Excel/CSV)** saves every regular show and every booking that week (all statuses, requester, submitted and approved times, notes), stamped with the export time and engineer. **Print / Save as PDF** gives the same week as a printable grid plus list. Keep one per week as a record of what was booked.
